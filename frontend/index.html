@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>doc-conventer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10/dist/htmx.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { 50:'#eff6ff',100:'#dbeafe',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8' }}}}
+    }
+  </script>
+  <style>
+    .drop-zone.dragover { border-color:#2563eb; background:#eff6ff; }
+    .fade-in { animation: fadeIn .3s ease-in; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-800">
+
+  <header class="bg-white border-b border-slate-200 px-6 py-4">
+    <div class="max-w-3xl mx-auto flex items-center gap-3">
+      <span class="text-2xl">📄</span>
+      <h1 class="text-xl font-semibold tracking-tight">doc-conventer</h1>
+      <span class="text-xs text-slate-400 ml-auto">stateless · vercel-ready · sin disco</span>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-10 space-y-8">
+
+    <!-- Drop zone -->
+    <section id="drop-section"
+      class="border-2 border-dashed border-slate-300 rounded-2xl p-10 text-center bg-white hover:border-brand-500 transition cursor-pointer"
+      hx-on:dragover="event.preventDefault(); this.classList.add('dragover')"
+      hx-on:dragleave="this.classList.remove('dragover')"
+      hx-on:drop="event.preventDefault(); this.classList.remove('dragover'); handleFiles(event.dataTransfer.files)">
+    <input type="file" id="file-input" class="hidden" multiple>
+      <div class="text-4xl mb-3">📥</div>
+      <p class="text-lg font-medium">Arrastra archivos aquí o haz clic para buscar</p>
+      <p class="text-sm text-slate-400 mt-1">PDF, DOCX, XLSX, imágenes, CSV… → descarga instantánea</p>
+    </section>
+
+    <!-- Botones manuales -->
+    <div class="flex flex-wrap gap-3 items-center">
+      <select id="route-select" class="border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
+        <option value="auto">Auto detectar</option>
+        <option value="markdown">→ Markdown</option>
+        <option value="finance">→ CSV financiero</option>
+      </select>
+      <label class="cursor-pointer bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition">
+        Seleccionar archivo(s)
+        <input type="file" class="hidden" multiple
+          onchange="handleFiles(this.files)">
+      </label>
+      <span id="status" class="text-sm text-slate-500"></span>
+    </div>
+
+    <!-- Resultados -->
+    <section id="result-area" class="fade-in space-y-3"></section>
+
+  </main>
+
+  <footer class="text-center text-xs text-slate-400 py-6">
+    doc-conventer · stateless · sin estado en servidor
+  </footer>
+
+  <script>
+    // Manejo de archivos (drop o input)
+    function handleFiles(fileList) {
+      if (!fileList || !fileList.length) return;
+      const route = document.getElementById('route-select').value;
+      document.getElementById('status').innerHTML = '<span class="text-brand-600 font-medium">Convirtiendo...</span>';
+
+      Array.from(fileList).forEach(file => {
+        convertFile(file, route);
+      });
+    }
+
+    async function convertFile(file, route) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('route', route);
+
+      try {
+        const response = await fetch('/convert', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({detail: 'Error desconocido'}));
+          throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+
+        // Obtener blob y forzar descarga
+        const blob = await response.blob();
+        const filename = getFilenameFromResponse(response, file.name, route);
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        // Mostrar feedback en UI
+        addResult(file.name, filename, 'success');
+
+      } catch (err) {
+        addResult(file.name, err.message, 'error');
+      } finally {
+        document.getElementById('status').textContent = '';
+      }
+    }
+
+    function getFilenameFromResponse(response, originalName, route) {
+      const cd = response.headers.get('Content-Disposition');
+      if (cd) {
+        const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (match) return match[1].replace(/['"]/g, '');
+      }
+      // Fallback
+      const base = originalName.rsplit('.', 1)[0];
+      return route === 'finance' ? `${base}.csv` : `${base}.md`;
+    }
+
+    function addResult(original, result, type) {
+      const area = document.getElementById('result-area');
+      const div = document.createElement('div');
+      div.className = `flex items-center gap-3 p-3 rounded-lg bg-white border ${
+        type === 'success' ? 'border-green-200' : 'border-red-200'
+      }`;
+      div.innerHTML = `
+        <span class="text-lg">${type === 'success' ? '✅' : '❌'}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium truncate">${original}</p>
+          <p class="text-xs text-slate-500 truncate">${result}</p>
+        </div>
+      `;
+      area.prepend(div);
+    }
+
+    // Click en drop zone → abre selector
+    document.getElementById('drop-section').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+
+    // Input hidden del drop zone
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    });
+  </script>
+</body>
+</html>

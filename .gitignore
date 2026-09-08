@@ -1,0 +1,23 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno y credenciales
+.env
+*.pem
+*.key
+
+# Python (entorno virtual y caché)
+.venv/
+__pycache__/
+*.pyc
+
+# Salidas de build y artefactos
+out/
+dist/
+.local-build/
+
+# Sistema operativo
+.DS_Store
+
+# Logs
+*.log

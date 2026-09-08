@@ -1,0 +1,31 @@
+{
+  "name": "doc-conventer",
+  "version": "0.1.0",
+  "description": "Document converter: SEMILLA programming language processor with CSV/JSON export and Canvas integration",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test src/**/*.test.js",
+    "test:watch": "node --test --watch src/**/*.test.js",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix"
+  },
+  "keywords": [
+    "semilla",
+    "document-converter",
+    "csv",
+    "json",
+    "canvas"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.0.0",
+    "csv-writer": "^1.6.0",
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  }
+}
