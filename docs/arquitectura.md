@@ -1,49 +1,62 @@
 # Arquitectura de doc-conventer
 
-## Visión general (big picture)
+## Visión general
 
-El proyecto sigue un **pipeline unidireccional de conversión** con tres etapas bien separadas:
+`doc-conventer` es un conversor de documentos **serverless** desplegado en Vercel.
 
 ```
-Fuente SEMILLA (.semilla)
+Cliente (browser)
+        │
+        │  POST /convert (multipart/form-data)
+        ▼
+FastAPI + Mangum (backend/main.py)
+        │
+        ├── .xls/.xlsx/.csv → finance_converter.py (pandas → CSV)
+        └── .pdf/.png/.jpg  → document_converter.py → vision_provider.py (Gemini → Markdown)
         │
         ▼
-[1] parsers/semilla.js   →  AST intermedio (estructura en memoria)
-        │
-        ▼
-[2] exporters/{csv,json}.js →  Archivo de salida
-        │
-        ▼
-[3] canvas/task.js       →  Registro de tarea on-demand (opcional)
+StreamingResponse (descarga directa en browser)
 ```
 
-El contrato clave es el **AST intermedio** (ver abajo), que desacopla el
-parser de los exportadores. Añadir un nuevo formato de salida implica crear
-un exportador que consuma ese AST, sin tocar el parser.
+## Endpoints
 
-## AST intermedio (contrato)
+| Método | Ruta      | Descripción |
+|--------|-----------|-------------|
+| GET    | `/`       | Sirve `frontend/index.html` |
+| POST   | `/convert`| Convierte archivo subido → CSV o Markdown |
 
-```js
-{
-  meta:    { [clave]: string },            // Metadatos entre ---
-  campos:  { [clave]: string | string[] }, // Campos principales
-  bloques: Array<{
-    nombre: string,                        // Título "## Nombre"
-    items: Array<{ clave: string, valor: string }>
-  }>
-}
-```
+## Lógica de enrutamiento
 
-## Decisiones
+1. **Extensiones financieras** (`.xls`, `.xlsx`, `.csv`) → SIEMPRE `finance_converter.py` → CSV
+2. **Parámetro `route`**:
+   - `finance` → `finance_converter.py` → CSV
+   - `markdown` → `document_converter.py` → Markdown
+   - `auto` (default) → detecta por keywords de banco en filename → CSV, si no → Markdown
 
-- **ESM (`type: "module"`)** — Uso de `import`/`export` moderno.
-- **`node:test`** — Pruebas sin dependencia externa (runner nativo).
-- **`commander`** — CLI declarativo para la interfaz de línea de comandos.
-- **Canvas como stub** — La integración externa se modela por contrato y se
-  sustituye luego por la API real, manteniendo los tests aislados.
+## Backend engines
+
+| Archivo | Función |
+|---------|---------|
+| `backend/engines/finance_converter.py` | Limpia y convierte extractos bancarios a CSV estructurado |
+| `backend/engines/document_converter.py` | Orquesta OCR de documentos (PDF/imágenes → Markdown) |
+| `backend/engines/vision_provider.py` | Abstracción OCR: Gemini 1.5 Flash vía google-genai SDK |
+
+## Frontend
+
+`frontend/index.html` — HTML autónomo, sin build, sin Node.js.
+- CSS vanilla + vanilla JS
+- Estilo Hyer Aviation (Deep Ink, Cool Ash, Clay Ember)
+- Estados: IDLE → PROCESSING → SUCCESS / ERROR
+
+## Decisiones técnicas
+
+- **Serverless**: Vercel Python build (`@vercel/python`) + Mangum
+- **Stateless**: todo en memoria, sin disco ni estado en servidor
+- **OCR**: Gemini 1.5 Flash como principal (google-genai SDK)
+- **Sin dependencias frontend**: un solo archivo HTML, carga instantánea
+- **Path original**: la rama `src/` (parser SEMILLA CLI) existe pero no es el foco actual
 
 ## Pendiente
 
-- API real de Canvas (URL y autenticación vía `CANVAS_API_*`).
-- Carga de variables de entorno (`.env`) en el runtime.
-- Especificación formal y completa del lenguaje SEMILLA.
+- Configurar `GEMINI_API_KEY` en Vercel para habilitar OCR completo
+- Integración real de Canvas (stub definido, API pendiente)

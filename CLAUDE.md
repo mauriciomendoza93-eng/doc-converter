@@ -4,82 +4,122 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Proyecto
 
-`doc-conventer` — conversor de documentos escritos en el lenguaje **SEMILLA** a **CSV** y **JSON**, con integración opcional con el **sistema de tareas on-demand de Canvas**. (El nombre contiene un typo intencional: "conventer".)
+`doc-conventer` — Conversor de documentos financieros y legales a CSV/Markdown desplegado en Vercel (FastAPI + HTML vanilla).
+
+- **Frontend**: `frontend/index.html` — HTML único con CSS/JS vanilla, estilo Hyer Aviation
+- **Backend**: `backend/main.py` — FastAPI serverless con Mangum
+- **Endpoint**: `POST /convert` (multipart/form-data)
 
 ## Comandos
 
 ```bash
-npm install               # Instalar dependencias
-node src/index.js <doc>   # Ejecutar el CLI (por defecto exporta CSV)
-npm test                  # Pruebas unitarias (node:test)
-npm run test:watch        # Pruebas en modo watch
-npm run lint              # ESLint
-```
+# Desarrollo local (Python)
+cd backend && pip install -r requirements.txt
+python main.py          # Levanta en http://localhost:3000
 
-**Prueba individual:**
+# Desarrollo local (con Vercel CLI)
+vercel dev
 
-```bash
-node --test tests/parsers/semilla.test.js
-```
-
-**Ejecutar el CLI con opciones:**
-
-```bash
-node src/index.js <documento.semilla> --format json --out ./salida --canvas
+# Deploy a producción
+vercel --prod
 ```
 
 ## Arquitectura (big picture)
 
-El proyecto es un **pipeline unidireccional de conversión**:
-
 ```
-Fuente SEMILLA → ast (parsers) → archivo (exporters) → [canvas]
+Archivo subido (multipart) → FastAPI /convert → Procesamiento en memoria
+    ├── .xls/.xlsx/.csv → Finance CSV (pandas) → StreamingResponse CSV (blob)
+    └── .pdf/.png/.jpg  → OCR con Gemini Vision → StreamingResponse Markdown
 ```
 
-La pieza central es el **AST intermedio** (contrato entre parser y exportadores):
+## Endpoints
 
-```js
+| Método | Ruta      | Descripción |
+|--------|-----------|-------------|
+| GET    | `/`       | Sirve `frontend/index.html` |
+| POST   | `/convert`| Convierte archivo, retorna descarga forzada |
+
+### `POST /convert`
+
+**Entrada:** `multipart/form-data`
+- `file` (UploadFile): `.xls`, `.xlsx`, `.csv`, `.pdf`, `.png`, `.jpg`
+- `route` (string, opcional): `auto` | `finance` | `markdown` (default: `auto`)
+
+**Salida:** `StreamingResponse` con `Content-Disposition: attachment`
+- CSV binario para financieros (`text/csv`)
+- Markdown texto para legales (`text/markdown`)
+
+## Lógica de enrutamiento (backend/main.py:49-127)
+
+```python
+if filename.endswith(('.xls', '.xlsx', '.csv')):
+    # SIEMPRE finance CSV, sin importar route
+    convert_to_finance_csv()
+elif route == 'finance':
+    convert_to_finance_csv()
+elif route == 'markdown':
+    convert_to_markdown()
+else:  # auto
+    if 'banco' keywords in filename:
+        convert_to_finance_csv()
+    else:
+        convert_to_markdown()
+```
+
+## Backend engines
+
+| Archivo | Función |
+|---------|---------|
+| `backend/engines/finance_converter.py` | `convert_to_finance_csv(bytes, name) → {success, buffer, filename, error}` |
+| `backend/engines/document_converter.py` | `convert_to_markdown(bytes, name) → {success, markdown, error}` |
+| `backend/engines/vision_provider.py` | OCR con Gemini (google-genai SDK, `types.Part` para PDF bytes) |
+
+## Frontend (`frontend/index.html`)
+
+- **Autónomo**: sin build, sin Node, sin React, sin Tailwind CDN
+- **Estilo**: Hyer Aviation — Deep Ink `#000d10`, Cool Ash `#8e8e95`, Clay Ember `#bc7155`, Pebble `#d5d3d4`
+- **Botones**: píldora (`border-radius: 1000px`)
+- **Tarjetas**: bordes rectos `4px`, sin sombras
+- **Estados**: IDLE → PROCESSING (spinner + progress bar) → SUCCESS (descarga/visor MD + copy) / ERROR
+
+## Configuración Vercel
+
+```json
 {
-  meta:    { [clave]: string },            // Metadatos entre ---
-  campos:  { [clave]: string | string[] }, // Campos principales
-  bloques: Array<{ nombre, items: Array<{ clave, valor }> }>
+  "builds": [{ "src": "backend/main.py", "use": "@vercel/python" }],
+  "routes": [{ "src": "/(.*)", "dest": "backend/main.py" }]
 }
 ```
 
-**Archivos clave a leer para entender el flujo:**
+## Variables de entorno requeridas
 
-- `src/index.js` — CLI con `commander`, punto de entrada.
-- `src/convert.js` — orquestador: `readFile → parseSemilla → export → canvas`.
-- `src/parsers/semilla.js` — parseo de la sintaxis SEMILLA → AST.
-- `src/exporters/{csv,json}.js` — consumidores del AST.
-- `src/canvas/task.js` — stub de integración (contrato definido, API real pendiente).
+| Variable | Descripción |
+|----------|-------------|
+| `GEMINI_API_KEY` | Clave Google Gemini para OCR Vision (requerida para PDF/imágenes) |
+| `ANTHROPIC_API_KEY` | (Opcional) Fallback Anthropic Vision |
 
-**Decisiones estructurales:**
+## Estado actual
 
-- **ESM** (`"type": "module"`) en todo el proyecto.
-- **Pruebas con `node:test`** — sin dependencia de test-runner externo.
-- **Canvas es un stub** — la integración externa se modela por contrato (`createCanvasTask({ source, outputPath }) → taskId`), no por llamada real. Sustituir el stub sin cambiar el contrato.
-- Añadir un nuevo formato de salida = **crear un exportador** que consuma el AST, sin tocar el parser.
+✅ **Producción**: https://doc-conventer.vercel.app
+- Frontend HTML vanilla (estilo Hyer Aviation) servido desde FastAPI `/`
+- Backend FastAPI serverless con enrutamiento estricto por extensión
+- CSV financiero: pandas + detección dinámica de headers + limpieza numérica
+- OCR legal: Gemini 1.5 Flash via google-genai SDK (`types.Part` para PDF bytes)
+- Deploy automático en push a `main`
 
-## Sintaxis SEMILLA (referencia)
+## Estructura del repo
 
-```semilla
-# Comentario
----
-titulo: Mi Documento     # Metadatos entre delimitadores ---
-autor: Nombre
----
-
-campo1: valor1            # Campos simples
-lista: a, b, c            # Valores separados por coma → array
-
-## Detalles               # Bloque (## Nombre)
-clave1: val1
-clave2: val2
 ```
-
-Ver `docs/arquitectura.md` para el detalle del contrato y las decisiones de diseño.
-
-## Estado
-
-🚧 **Fase inicial.** Parser SEMILLA y exportadores CSV/JSON implementados con pruebas. Integración real de Canvas y carga de `.env` pendientes.
+doc-conventer/
+├── backend/
+│   ├── main.py                      # FastAPI + Mangum handler
+│   └── engines/
+│       ├── finance_converter.py     # CSV financiero
+│       ├── document_converter.py    # Markdown + OCR
+│       └── vision_provider.py       # Gemini Vision SDK
+├── frontend/
+│   └── index.html                   # HTML autónomo (CSS + JS inline)
+├── vercel.json                      # Config Vercel (Python build)
+├── requirements.txt                 # fastapi, mangum, pandas, google-genai, etc.
+└── CLAUDE.md                        # Este archivo
+```
