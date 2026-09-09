@@ -16,7 +16,7 @@
       /* Dimension Colors */
       --void-canvas: #0a0a0a;
       --graphite: #161616;
-      --frosted-glass: rgba(212, 212, 212, 0.05); /* Adaptado para superposición en oscuro */
+      --frosted-glass: rgba(212, 212, 212, 0.05);
       --ink-black: #000000;
       --snow-white: #ffffff;
       --bone: #ededed;
@@ -49,45 +49,10 @@
       overflow-x: hidden;
     }
 
-    /* ── Floating Nav ── */
-    .floating-nav-wrapper {
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      display: flex;
-      justify-content: center;
-      padding-top: 24px;
-      z-index: 100;
-      pointer-events: none;
-    }
-    .floating-nav {
-      pointer-events: auto;
-      background: rgba(22, 22, 22, 0.65);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid var(--hairline);
-      border-radius: 9999px; /* Pill */
-      padding: 8px 12px 8px 24px;
-      display: flex;
-      align-items: center;
-      gap: 32px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    }
-    .nav-brand {
-      font-weight: 500;
-      font-size: 15px;
-      letter-spacing: -0.02em;
-      color: var(--bone);
-    }
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
     /* ── Layout & Hero ── */
     .hero-section {
       position: relative;
-      padding: 140px 24px 80px;
+      padding: 100px 24px 80px;
       background: var(--hero-horizon);
       min-height: 100vh;
       display: flex;
@@ -356,22 +321,11 @@
     @media (max-width: 900px) {
       .hero-container { grid-template-columns: 1fr; gap: 48px; }
       .hero-content h1 { font-size: 48px; }
-      .hero-section { padding-top: 120px; }
+      .hero-section { padding-top: 80px; }
     }
   </style>
 </head>
 <body>
-
-  <!-- Floating Nav -->
-  <div class="floating-nav-wrapper">
-    <nav class="floating-nav">
-      <div class="nav-brand">Dimension</div>
-      <div class="nav-links">
-        <button class="pill pill-ghost">Documentation</button>
-        <button class="pill pill-white">Deploy API</button>
-      </div>
-    </nav>
-  </div>
 
   <!-- Hero Section (Split Layout) -->
   <section class="hero-section">
@@ -402,7 +356,6 @@
         </ul>
         <div style="display: flex; gap: 12px;">
           <button class="pill pill-white" onclick="document.getElementById('file-input').click()">Subir archivo</button>
-          <button class="pill pill-ghost">Ver ejemplos</button>
         </div>
       </div>
 
