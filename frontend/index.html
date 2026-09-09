@@ -3,344 +3,456 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>doc-conventer</title>
+  <title>Dimension | Secure Conversion</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Cargamos DM Sans (Primaria) y Geist (Secundaria/Técnica) -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+  
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --ink: #000d10;
-      --ash: #8e8e95;
-      --pebble: #d5d3d4;
-      --clay: #bc7155;
-      --white: #ffffff;
+      /* Dimension Colors */
+      --void-canvas: #0a0a0a;
+      --graphite: #161616;
+      --frosted-glass: rgba(212, 212, 212, 0.05); /* Adaptado para superposición en oscuro */
+      --ink-black: #000000;
+      --snow-white: #ffffff;
+      --bone: #ededed;
+      --ash: #c2c2c2;
+      --slate: #686868;
+      --smoke: #b2b2b2;
+      --hairline: rgba(255, 255, 255, 0.12);
+      --dusk-violet: rgba(107, 98, 242, 0.565);
+      
+      /* Gradients */
+      --hero-horizon: linear-gradient(90deg, rgba(230, 110, 60, 0.15) 0%, rgba(10, 10, 10, 0) 30%, rgba(10, 10, 10, 0) 70%, rgba(60, 120, 230, 0.15) 100%);
+      --violet-wash: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 35%, var(--dusk-violet) 50%, rgba(0,0,0,0) 65%, rgba(0,0,0,0) 100%);
+      
+      /* Shadows & Borders */
+      --shadow-subtle: inset 0 0 0 1px var(--hairline);
+      
+      /* Typography */
+      --font-primary: 'DM Sans', system-ui, sans-serif;
+      --font-secondary: 'Geist', system-ui, sans-serif;
     }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--white);
-      color: var(--ink);
+      font-family: var(--font-primary);
+      background: var(--void-canvas);
+      color: var(--bone);
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
     }
 
-    /* ── Layout ── */
-    .wrapper {
-      max-width: 580px;
-      margin: 0 auto;
-      padding: 60px 24px 40px;
+    /* ── Floating Nav ── */
+    .floating-nav-wrapper {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: center;
+      padding-top: 24px;
+      z-index: 100;
+      pointer-events: none;
     }
-
-    /* ── Eyebrow ── */
-    .eyebrow {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
+    .floating-nav {
+      pointer-events: auto;
+      background: rgba(22, 22, 22, 0.65);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--hairline);
+      border-radius: 9999px; /* Pill */
+      padding: 8px 12px 8px 24px;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .nav-brand {
       font-weight: 500;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: var(--ash);
-      text-align: center;
-      margin-bottom: 28px;
-    }
-
-    /* ── Headlines ── */
-    .headline {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    .headline h1 {
-      font-size: 36px;
-      font-weight: 700;
-      line-height: 1.15;
-      color: var(--ink);
+      font-size: 15px;
       letter-spacing: -0.02em;
+      color: var(--bone);
     }
-    .subtitle {
-      text-align: center;
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ── Layout & Hero ── */
+    .hero-section {
+      position: relative;
+      padding: 140px 24px 80px;
+      background: var(--hero-horizon);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+    }
+    .hero-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    /* ── Left: Typography & Features ── */
+    .hero-content h1 {
+      font-size: clamp(48px, 6vw, 72px);
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -2.52px;
+      color: var(--snow-white);
+      margin-bottom: 40px;
+    }
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
       font-size: 16px;
-      line-height: 1.6;
-      color: var(--ash);
-      max-width: 420px;
-      margin: 0 auto 44px;
+      color: var(--bone);
     }
-
-    /* ── Card ── */
-    .card {
-      border: 1px solid var(--pebble);
+    .feature-icon {
+      width: 20px;
+      height: 20px;
       border-radius: 4px;
-      padding: 40px 32px;
-      background: var(--white);
-    }
-
-    /* ── Drop zone ── */
-    .dropzone {
-      border: 1px dashed var(--pebble);
-      border-radius: 4px;
-      padding: 48px 24px;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.15s;
-    }
-    .dropzone:hover,
-    .dropzone.dragover {
-      border-color: var(--ink);
-    }
-    .dropzone-icon {
-      width: 40px;
-      height: 40px;
-      margin: 0 auto 16px;
-      border: 1.5px solid var(--pebble);
-      border-radius: 1000px;
+      border: 1.5px solid var(--snow-white);
       display: flex;
       align-items: center;
       justify-content: center;
     }
-    .dropzone-icon svg { width: 18px; height: 18px; color: var(--ash); }
+    .feature-icon svg { width: 12px; height: 12px; stroke-width: 2.5; }
+
+    /* ── Right: Frosted Glass Workspace ── */
+    .workspace-wrapper {
+      position: relative;
+    }
+    .workspace-glow {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 100%; height: 100%;
+      transform: translate(-50%, -50%);
+      background: radial-gradient(circle, var(--dusk-violet) 0%, rgba(0,0,0,0) 60%);
+      filter: blur(60px);
+      opacity: 0.4;
+      z-index: 0;
+      pointer-events: none;
+    }
+    .glass-card {
+      position: relative;
+      z-index: 1;
+      background: var(--frosted-glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: var(--shadow-subtle), 0 24px 60px rgba(0,0,0,0.4);
+    }
+    .card-header {
+      font-family: var(--font-secondary);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--bone);
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    /* ── Dropzone ── */
+    .dropzone {
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 10px; /* UI radius */
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: rgba(22, 22, 22, 0.3);
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--snow-white);
+      background: rgba(22, 22, 22, 0.7);
+    }
+    .dropzone-icon {
+      width: 32px; height: 32px;
+      margin: 0 auto 16px;
+      color: var(--snow-white);
+    }
     .dropzone p {
-      font-size: 14px;
-      color: var(--ink);
-      margin-bottom: 12px;
+      font-size: 16px;
+      color: var(--bone);
+      margin-bottom: 8px;
     }
     .formats {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.05em;
-      color: var(--ash);
+      font-family: var(--font-secondary);
+      font-size: 13px;
+      color: var(--slate);
     }
 
-    /* ── Pills / Buttons ── */
+    /* ── Buttons (9999px Pills) ── */
     .pill {
-      display: inline-block;
-      border-radius: 1000px;
-      font-family: 'Inter', sans-serif;
-      font-weight: 600;
-      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-primary);
+      border-radius: 9999px;
       cursor: pointer;
       border: none;
-      transition: opacity 0.15s;
+      transition: all 0.15s ease;
       text-decoration: none;
     }
-    .pill:active { opacity: 0.8; }
+    .pill:active { transform: scale(0.98); }
 
-    .pill-primary {
-      background: var(--ink);
-      color: var(--white);
-      padding: 12px 28px;
-      width: 100%;
-      text-align: center;
+    .pill-white {
+      background: var(--snow-white);
+      color: var(--graphite);
+      font-weight: 500;
+      font-size: 14px;
+      padding: 10px 20px;
     }
-    .pill-primary:hover { opacity: 0.88; }
-
-    .pill-outline {
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid var(--pebble);
-      padding: 12px 28px;
-    }
-    .pill-outline:hover { background: #f5f5f5; }
-
-    .pill-clay {
-      background: var(--clay);
-      color: var(--white);
-      padding: 12px 28px;
-      width: 100%;
-      text-align: center;
-    }
+    .pill-white:hover { opacity: 0.9; }
 
     .pill-ghost {
       background: transparent;
-      color: var(--ash);
-      padding: 8px 0;
-      font-weight: 500;
-      font-size: 13px;
+      color: rgba(255, 255, 255, 0.85);
+      border: 1px solid var(--hairline);
+      font-size: 14px;
+      padding: 8px 16px;
     }
-    .pill-ghost:hover { color: var(--ink); }
+    .pill-ghost:hover { background: rgba(255, 255, 255, 0.05); color: var(--snow-white); }
 
-    /* ── Processing state ── */
+    .pill-full { width: 100%; padding: 12px 24px; font-size: 15px; }
+
+    /* ── Processing State ── */
     .processing-info {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 16px;
       margin-bottom: 24px;
     }
     .spinner {
-      width: 20px;
-      height: 20px;
-      border: 2px solid var(--pebble);
-      border-top-color: var(--ink);
+      width: 20px; height: 20px;
+      border: 1.5px solid var(--hairline);
+      border-top-color: var(--snow-white);
       border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      flex-shrink: 0;
+      animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .proc-meta {
+      font-family: var(--font-secondary);
+    }
+    .proc-meta .filename {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--bone);
+      margin-bottom: 2px;
+    }
+    .proc-meta .filesize {
+      font-size: 13px;
+      color: var(--ash);
+    }
 
     .progress-track {
       width: 100%;
-      height: 3px;
-      background: #f0f0f0;
-      border-radius: 1000px;
+      height: 2px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 9999px;
       overflow: hidden;
       margin-bottom: 16px;
     }
     .progress-bar {
       height: 100%;
-      background: var(--ink);
-      border-radius: 1000px;
-      animation: pulse 1.6s ease-in-out infinite;
-      transform-origin: left;
-      transform: scaleX(0.3);
+      background: var(--violet-wash);
+      background-size: 200% 100%;
+      animation: progressSweep 2s ease-in-out infinite;
     }
-    @keyframes pulse {
-      0% { transform: scaleX(0.08); opacity: 0.4; }
-      50% { transform: scaleX(0.7); opacity: 1; }
-      100% { transform: scaleX(0.08); opacity: 0.4; }
+    @keyframes progressSweep {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    
+    .proc-msg {
+      font-size: 14px;
+      color: var(--ash);
     }
 
-    /* ── Success state ── */
-    .success-badge {
-      display: inline-block;
-      background: var(--ink);
-      color: var(--white);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
-      letter-spacing: 0.1em;
-      padding: 5px 14px;
-      border-radius: 1000px;
+    /* ── Success / Result State ── */
+    .result-icon {
+      width: 48px; height: 48px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--hairline);
+      display: flex; align-items: center; justify-content: center;
       margin-bottom: 20px;
     }
-    .result-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--ink);
-      text-align: center;
-      margin-bottom: 4px;
-    }
-    .result-size {
-      font-size: 11px;
-      color: var(--ash);
-      text-align: center;
-      margin-bottom: 24px;
-    }
-
-    /* ── Markdown viewer ── */
+    .result-icon svg { width: 24px; height: 24px; color: var(--snow-white); }
+    
     .md-viewer {
-      background: #fafafa;
-      border: 1px solid var(--pebble);
-      border-radius: 4px;
-      padding: 20px;
-      max-height: 320px;
+      background: var(--graphite);
+      border-radius: 10px;
+      padding: 16px;
+      max-height: 240px;
       overflow-y: auto;
-      margin-bottom: 16px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-subtle);
     }
     .md-viewer pre {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      line-height: 1.7;
-      color: var(--ink);
+      font-family: var(--font-secondary);
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ash);
       white-space: pre-wrap;
       word-break: break-word;
     }
 
-    .btn-row {
+    .action-group {
       display: flex;
-      gap: 10px;
-    }
-    .btn-row .pill-outline { flex: 0 0 auto; }
-    .btn-row .pill-primary { flex: 1; }
-
-    /* ── Error state ── */
-    .error-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: #fef2f2;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 16px;
-    }
-    .error-icon svg { width: 20px; height: 20px; color: #b45454; }
-    .error-msg {
-      font-size: 14px;
-      color: var(--ink);
-      text-align: center;
+      gap: 12px;
       margin-bottom: 24px;
+    }
+    
+    /* ── Error State ── */
+    .error-msg {
+      font-family: var(--font-secondary);
+      color: #ff6b6b;
+      margin-bottom: 24px;
+      font-size: 14px;
       line-height: 1.5;
     }
 
     /* ── Footer ── */
     .footer {
       text-align: center;
-      padding: 48px 24px 32px;
+      padding: 40px 24px;
+      font-family: var(--font-secondary);
       font-size: 13px;
-      color: var(--ash);
+      color: var(--slate);
+      background: var(--void-canvas);
     }
 
     /* ── Utility ── */
     .hidden { display: none !important; }
-    .fade-in { animation: fadeIn 0.25s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    @keyframes fadeIn { 
+      from { opacity: 0; transform: translateY(8px); } 
+      to { opacity: 1; transform: translateY(0); } 
+    }
 
-    @media (prefers-reduced-motion: reduce) {
-      .spinner, .progress-bar { animation: none; }
-      .progress-bar { transform: scaleX(0.5); opacity: 0.6; }
+    /* Responsive */
+    @media (max-width: 900px) {
+      .hero-container { grid-template-columns: 1fr; gap: 48px; }
+      .hero-content h1 { font-size: 48px; }
+      .hero-section { padding-top: 120px; }
     }
   </style>
 </head>
 <body>
 
-  <div class="wrapper">
-
-    <!-- ── Header ── -->
-    <p class="eyebrow">[ Secure Conversion Engine ]</p>
-    <div class="headline">
-      <h1>Transforma documentos complejos.<br>Datos limpios en segundos.</h1>
-    </div>
-    <p class="subtitle">Convierte extractos financieros a CSV o documentos a Markdown estructurado con IA.</p>
-
-    <!-- ── Conversion Card ── -->
-    <div class="card" id="card">
-
-      <!-- IDLE -->
-      <div id="state-idle">
-        <div class="dropzone" id="dropzone">
-          <input type="file" id="file-input" class="hidden" accept=".xls,.xlsx,.csv,.pdf,.png,.jpg,.jpeg">
-          <div class="dropzone-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-          </div>
-          <p>Arrastra tu archivo aquí o haz clic para seleccionar</p>
-          <span class="formats">XLS, XLSX → CSV · PDF, PNG, JPG → Markdown</span>
-        </div>
+  <!-- Floating Nav -->
+  <div class="floating-nav-wrapper">
+    <nav class="floating-nav">
+      <div class="nav-brand">Dimension</div>
+      <div class="nav-links">
+        <button class="pill pill-ghost">Documentation</button>
+        <button class="pill pill-white">Deploy API</button>
       </div>
-
-      <!-- PROCESSING -->
-      <div id="state-processing" class="hidden">
-        <div class="processing-info">
-          <div class="spinner"></div>
-          <div>
-            <p class="eyebrow" style="text-align:left;margin-bottom:2px;">Processing Document…</p>
-            <p id="proc-filename" style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px;"></p>
-            <p id="proc-size" style="font-size:11px;color:var(--ash);"></p>
-          </div>
-        </div>
-        <div class="progress-track"><div class="progress-bar"></div></div>
-        <p id="proc-msg" style="font-size:13px;color:var(--ash);text-align:center;">Analizando estructura y convirtiendo datos…</p>
-      </div>
-
-      <!-- SUCCESS -->
-      <div id="state-success" class="hidden"></div>
-
-      <!-- ERROR -->
-      <div id="state-error" class="hidden"></div>
-
-    </div>
+    </nav>
   </div>
 
+  <!-- Hero Section (Split Layout) -->
+  <section class="hero-section">
+    <div class="hero-container">
+      
+      <!-- Left: Copy & Value -->
+      <div class="hero-content fade-in">
+        <h1>Datos limpios.<br>Cero fricción.</h1>
+        <ul class="feature-list">
+          <li class="feature-item">
+            <div class="feature-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            </div>
+            Extractos bancarios a CSV estructurado
+          </li>
+          <li class="feature-item">
+            <div class="feature-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            </div>
+            Documentos y PDFs a Markdown limpio
+          </li>
+          <li class="feature-item">
+            <div class="feature-icon">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+            </div>
+            Imágenes renderizadas con IA en segundos
+          </li>
+        </ul>
+        <div style="display: flex; gap: 12px;">
+          <button class="pill pill-white" onclick="document.getElementById('file-input').click()">Subir archivo</button>
+          <button class="pill pill-ghost">Ver ejemplos</button>
+        </div>
+      </div>
+
+      <!-- Right: Converter Workspace -->
+      <div class="workspace-wrapper fade-in" style="animation-delay: 0.1s;">
+        <div class="workspace-glow"></div>
+        <div class="glass-card">
+          <div class="card-header">Secure Conversion Engine</div>
+          
+          <!-- IDLE STATE -->
+          <div id="state-idle">
+            <div class="dropzone" id="dropzone">
+              <input type="file" id="file-input" class="hidden" accept=".xls,.xlsx,.csv,.pdf,.png,.jpg,.jpeg">
+              <svg class="dropzone-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <p>Arrastra tu documento aquí</p>
+              <p class="formats">XLS, XLSX, CSV, PDF, PNG, JPG</p>
+            </div>
+          </div>
+
+          <!-- PROCESSING STATE -->
+          <div id="state-processing" class="hidden">
+            <div class="processing-info">
+              <div class="spinner"></div>
+              <div class="proc-meta">
+                <div id="proc-filename" class="filename">documento.pdf</div>
+                <div id="proc-size" class="filesize">2.4 MB</div>
+              </div>
+            </div>
+            <div class="progress-track"><div class="progress-bar"></div></div>
+            <p id="proc-msg" class="proc-msg">Procesando vectores y estructura...</p>
+          </div>
+
+          <!-- SUCCESS STATE -->
+          <div id="state-success" class="hidden"></div>
+
+          <!-- ERROR STATE -->
+          <div id="state-error" class="hidden"></div>
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
   <!-- Footer -->
-  <p class="footer">Desarrollado por Mauricio Mendoza</p>
+  <footer class="footer">
+    <p>Construido sobre la arquitectura Dimension. Desarrollado por Mauricio Mendoza.</p>
+  </footer>
 
   <script>
     /* ── DOM refs ── */
@@ -362,10 +474,10 @@
     }
     function processingMsg(name) {
       const n = name.toLowerCase();
-      if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return 'Extrayendo transacciones…';
-      if (n.endsWith('.pdf')) return 'Analizando estructura con IA…';
-      if (n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'Procesando imagen con Gemini…';
-      return 'Analizando estructura y convirtiendo datos…';
+      if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return 'Parseando extractos financieros...';
+      if (n.endsWith('.pdf')) return 'Analizando estructura vectorial...';
+      if (n.endsWith('.png') || n.endsWith('.jpg')) return 'Procesando captura con IA...';
+      return 'Convirtiendo datos...';
     }
     function extractFilename(disp) {
       const m = disp && disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
@@ -424,38 +536,49 @@
     }
 
     /* ── Templates ── */
+    function getIconSVG() {
+      return `<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" /></svg>`;
+    }
+
     function successCSV(name, size, url) {
-      return '<div style="text-align:center" class="fade-in">'
-        + '<span class="success-badge">Completado</span>'
-        + '<p class="result-name">' + esc(name) + '</p>'
-        + '<p class="result-size">' + fmtSize(size) + '</p>'
-        + '<a class="pill pill-primary" href="' + url + '" download="' + esc(name) + '">Descargar .csv</a>'
-        + '<div style="text-align:center;margin-top:16px"><button class="pill pill-ghost" onclick="reset()">Convertir otro documento</button></div>'
-        + '</div>';
+      return `<div class="fade-in">
+        <div class="result-icon">${getIconSVG()}</div>
+        <div class="proc-meta" style="margin-bottom: 24px;">
+          <div class="filename">${esc(name)}</div>
+          <div class="filesize">${fmtSize(size)} • Estructurado</div>
+        </div>
+        <div class="action-group">
+          <a class="pill pill-white pill-full" href="${url}" download="${esc(name)}">Descargar CSV</a>
+        </div>
+        <button class="pill pill-ghost" onclick="reset()" style="width: 100%;">Convertir otro documento</button>
+      </div>`;
     }
 
     function successMD(name, size, text) {
       const id = 'md-' + Date.now();
-      return '<div style="text-align:center" class="fade-in">'
-        + '<span class="success-badge">Completado</span>'
-        + '<p class="result-name">' + esc(name) + '</p>'
-        + '<p class="result-size">' + fmtSize(size) + '</p>'
-        + '</div>'
-        + '<div class="md-viewer"><pre id="' + id + '">' + esc(text) + '</pre></div>'
-        + '<div class="btn-row">'
-        + '<button class="pill pill-primary" onclick="downloadMD(\'' + id + '\',\'' + esc(name) + '\')">Descargar .md</button>'
-        + '<button class="pill pill-outline" onclick="copyMD(\'' + id + '\')">Copiar</button>'
-        + '</div>'
-        + '<div style="text-align:center;margin-top:16px"><button class="pill pill-ghost" onclick="reset()">Convertir otro documento</button></div>';
+      return `<div class="fade-in">
+        <div class="proc-meta" style="margin-bottom: 16px;">
+          <div class="filename">${esc(name)}</div>
+          <div class="filesize">${fmtSize(size)}</div>
+        </div>
+        <div class="md-viewer"><pre id="${id}">${esc(text)}</pre></div>
+        <div class="action-group">
+          <button class="pill pill-ghost" style="flex: 1;" onclick="copyMD('${id}')">Copiar</button>
+          <button class="pill pill-white" style="flex: 2;" onclick="downloadMD('${id}', '${esc(name)}')">Descargar MD</button>
+        </div>
+        <button class="pill pill-ghost" style="border-color: transparent; width: 100%;" onclick="reset()">Volver al inicio</button>
+      </div>`;
     }
 
     function errorHTML(msg) {
-      return '<div style="text-align:center" class="fade-in">'
-        + '<div class="error-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg></div>'
-        + '<p class="eyebrow">Error en conversión</p>'
-        + '<p class="error-msg">' + esc(msg) + '</p>'
-        + '<button class="pill pill-outline" onclick="reset()">Reintentar</button>'
-        + '</div>';
+      return `<div class="fade-in">
+        <div class="result-icon" style="border-color: rgba(255,107,107,0.3); color: #ff6b6b;">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+        </div>
+        <div class="card-header" style="border:none; margin-bottom:8px; padding:0; color:#ff6b6b;">Fallo de conversión</div>
+        <p class="error-msg">${esc(msg)}</p>
+        <button class="pill pill-white pill-full" onclick="reset()">Intentar de nuevo</button>
+      </div>`;
     }
 
     function esc(s) {
