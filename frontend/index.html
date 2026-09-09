@@ -4,155 +4,505 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>doc-conventer</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10/dist/htmx.min.js"></script>
-  <script>
-    tailwind.config = {
-      theme: { extend: { colors: { brand: { 50:'#eff6ff',100:'#dbeafe',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8' }}}}
-    }
-  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    .drop-zone.dragover { border-color:#2563eb; background:#eff6ff; }
-    .fade-in { animation: fadeIn .3s ease-in; }
-    @keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --ink: #000d10;
+      --ash: #8e8e95;
+      --pebble: #d5d3d4;
+      --clay: #bc7155;
+      --white: #ffffff;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--white);
+      color: var(--ink);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ── */
+    .wrapper {
+      max-width: 580px;
+      margin: 0 auto;
+      padding: 60px 24px 40px;
+    }
+
+    /* ── Eyebrow ── */
+    .eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ash);
+      text-align: center;
+      margin-bottom: 28px;
+    }
+
+    /* ── Headlines ── */
+    .headline {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .headline h1 {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1.15;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--ash);
+      max-width: 420px;
+      margin: 0 auto 44px;
+    }
+
+    /* ── Card ── */
+    .card {
+      border: 1px solid var(--pebble);
+      border-radius: 4px;
+      padding: 40px 32px;
+      background: var(--white);
+    }
+
+    /* ── Drop zone ── */
+    .dropzone {
+      border: 1px dashed var(--pebble);
+      border-radius: 4px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--ink);
+    }
+    .dropzone-icon {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 16px;
+      border: 1.5px solid var(--pebble);
+      border-radius: 1000px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .dropzone-icon svg { width: 18px; height: 18px; color: var(--ash); }
+    .dropzone p {
+      font-size: 14px;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+    .formats {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      color: var(--ash);
+    }
+
+    /* ── Pills / Buttons ── */
+    .pill {
+      display: inline-block;
+      border-radius: 1000px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s;
+      text-decoration: none;
+    }
+    .pill:active { opacity: 0.8; }
+
+    .pill-primary {
+      background: var(--ink);
+      color: var(--white);
+      padding: 12px 28px;
+      width: 100%;
+      text-align: center;
+    }
+    .pill-primary:hover { opacity: 0.88; }
+
+    .pill-outline {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--pebble);
+      padding: 12px 28px;
+    }
+    .pill-outline:hover { background: #f5f5f5; }
+
+    .pill-clay {
+      background: var(--clay);
+      color: var(--white);
+      padding: 12px 28px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .pill-ghost {
+      background: transparent;
+      color: var(--ash);
+      padding: 8px 0;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .pill-ghost:hover { color: var(--ink); }
+
+    /* ── Processing state ── */
+    .processing-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--pebble);
+      border-top-color: var(--ink);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .progress-track {
+      width: 100%;
+      height: 3px;
+      background: #f0f0f0;
+      border-radius: 1000px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--ink);
+      border-radius: 1000px;
+      animation: pulse 1.6s ease-in-out infinite;
+      transform-origin: left;
+      transform: scaleX(0.3);
+    }
+    @keyframes pulse {
+      0% { transform: scaleX(0.08); opacity: 0.4; }
+      50% { transform: scaleX(0.7); opacity: 1; }
+      100% { transform: scaleX(0.08); opacity: 0.4; }
+    }
+
+    /* ── Success state ── */
+    .success-badge {
+      display: inline-block;
+      background: var(--ink);
+      color: var(--white);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      padding: 5px 14px;
+      border-radius: 1000px;
+      margin-bottom: 20px;
+    }
+    .result-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      text-align: center;
+      margin-bottom: 4px;
+    }
+    .result-size {
+      font-size: 11px;
+      color: var(--ash);
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    /* ── Markdown viewer ── */
+    .md-viewer {
+      background: #fafafa;
+      border: 1px solid var(--pebble);
+      border-radius: 4px;
+      padding: 20px;
+      max-height: 320px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    .md-viewer pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+    }
+    .btn-row .pill-outline { flex: 0 0 auto; }
+    .btn-row .pill-primary { flex: 1; }
+
+    /* ── Error state ── */
+    .error-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #fef2f2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .error-icon svg { width: 20px; height: 20px; color: #b45454; }
+    .error-msg {
+      font-size: 14px;
+      color: var(--ink);
+      text-align: center;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding: 48px 24px 32px;
+      font-size: 13px;
+      color: var(--ash);
+    }
+
+    /* ── Utility ── */
+    .hidden { display: none !important; }
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .spinner, .progress-bar { animation: none; }
+      .progress-bar { transform: scaleX(0.5); opacity: 0.6; }
+    }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen font-sans text-slate-800">
+<body>
 
-  <header class="bg-white border-b border-slate-200 px-6 py-4">
-    <div class="max-w-3xl mx-auto flex items-center gap-3">
-      <span class="text-2xl">📄</span>
-      <h1 class="text-xl font-semibold tracking-tight">doc-conventer</h1>
-      <span class="text-xs text-slate-400 ml-auto">stateless · vercel-ready · sin disco</span>
+  <div class="wrapper">
+
+    <!-- ── Header ── -->
+    <p class="eyebrow">[ Secure Conversion Engine ]</p>
+    <div class="headline">
+      <h1>Transforma documentos complejos.<br>Datos limpios en segundos.</h1>
     </div>
-  </header>
+    <p class="subtitle">Convierte extractos financieros a CSV o documentos a Markdown estructurado con IA.</p>
 
-  <main class="max-w-3xl mx-auto px-4 py-10 space-y-8">
+    <!-- ── Conversion Card ── -->
+    <div class="card" id="card">
 
-    <!-- Drop zone -->
-    <section id="drop-section"
-      class="border-2 border-dashed border-slate-300 rounded-2xl p-10 text-center bg-white hover:border-brand-500 transition cursor-pointer"
-      hx-on:dragover="event.preventDefault(); this.classList.add('dragover')"
-      hx-on:dragleave="this.classList.remove('dragover')"
-      hx-on:drop="event.preventDefault(); this.classList.remove('dragover'); handleFiles(event.dataTransfer.files)">
-    <input type="file" id="file-input" class="hidden" multiple>
-      <div class="text-4xl mb-3">📥</div>
-      <p class="text-lg font-medium">Arrastra archivos aquí o haz clic para buscar</p>
-      <p class="text-sm text-slate-400 mt-1">PDF, DOCX, XLSX, imágenes, CSV… → descarga instantánea</p>
-    </section>
+      <!-- IDLE -->
+      <div id="state-idle">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" class="hidden" accept=".xls,.xlsx,.csv,.pdf,.png,.jpg,.jpeg">
+          <div class="dropzone-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <p>Arrastra tu archivo aquí o haz clic para seleccionar</p>
+          <span class="formats">XLS, XLSX → CSV · PDF, PNG, JPG → Markdown</span>
+        </div>
+      </div>
 
-    <!-- Botones manuales -->
-    <div class="flex flex-wrap gap-3 items-center">
-      <select id="route-select" class="border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-        <option value="auto">Auto detectar</option>
-        <option value="markdown">→ Markdown</option>
-        <option value="finance">→ CSV financiero</option>
-      </select>
-      <label class="cursor-pointer bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700 transition">
-        Seleccionar archivo(s)
-        <input type="file" class="hidden" multiple
-          onchange="handleFiles(this.files)">
-      </label>
-      <span id="status" class="text-sm text-slate-500"></span>
+      <!-- PROCESSING -->
+      <div id="state-processing" class="hidden">
+        <div class="processing-info">
+          <div class="spinner"></div>
+          <div>
+            <p class="eyebrow" style="text-align:left;margin-bottom:2px;">Processing Document…</p>
+            <p id="proc-filename" style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px;"></p>
+            <p id="proc-size" style="font-size:11px;color:var(--ash);"></p>
+          </div>
+        </div>
+        <div class="progress-track"><div class="progress-bar"></div></div>
+        <p id="proc-msg" style="font-size:13px;color:var(--ash);text-align:center;">Analizando estructura y convirtiendo datos…</p>
+      </div>
+
+      <!-- SUCCESS -->
+      <div id="state-success" class="hidden"></div>
+
+      <!-- ERROR -->
+      <div id="state-error" class="hidden"></div>
+
     </div>
+  </div>
 
-    <!-- Resultados -->
-    <section id="result-area" class="fade-in space-y-3"></section>
-
-  </main>
-
-  <footer class="text-center text-xs text-slate-400 py-6">
-    doc-conventer · stateless · sin estado en servidor
-  </footer>
+  <!-- Footer -->
+  <p class="footer">Desarrollado por Mauricio Mendoza</p>
 
   <script>
-    // Manejo de archivos (drop o input)
-    function handleFiles(fileList) {
-      if (!fileList || !fileList.length) return;
-      const route = document.getElementById('route-select').value;
-      document.getElementById('status').innerHTML = '<span class="text-brand-600 font-medium">Convirtiendo...</span>';
+    /* ── DOM refs ── */
+    const dropzone    = document.getElementById('dropzone');
+    const fileInput   = document.getElementById('file-input');
+    const stateIdle   = document.getElementById('state-idle');
+    const stateProc   = document.getElementById('state-processing');
+    const stateOk     = document.getElementById('state-success');
+    const stateErr    = document.getElementById('state-error');
+    const procFile    = document.getElementById('proc-filename');
+    const procSize    = document.getElementById('proc-size');
+    const procMsg     = document.getElementById('proc-msg');
 
-      Array.from(fileList).forEach(file => {
-        convertFile(file, route);
+    /* ── Helpers ── */
+    function fmtSize(b) {
+      if (b < 1024) return b + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1048576).toFixed(1) + ' MB';
+    }
+    function processingMsg(name) {
+      const n = name.toLowerCase();
+      if (n.endsWith('.xls') || n.endsWith('.xlsx') || n.endsWith('.csv')) return 'Extrayendo transacciones…';
+      if (n.endsWith('.pdf')) return 'Analizando estructura con IA…';
+      if (n.endsWith('.png') || n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'Procesando imagen con Gemini…';
+      return 'Analizando estructura y convirtiendo datos…';
+    }
+    function extractFilename(disp) {
+      const m = disp && disp.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      return m ? m[1].replace(/['"]/g, '') : null;
+    }
+    function fallbackName(orig) {
+      const i = orig.lastIndexOf('.');
+      return (i === -1 ? orig : orig.slice(0, i)) + '.md';
+    }
+    function show(id) {
+      [stateIdle, stateProc, stateOk, stateErr].forEach(el => el.classList.add('hidden'));
+      id.classList.remove('hidden');
+      id.classList.add('fade-in');
+    }
+
+    /* ── Core conversion ── */
+    async function convert(file) {
+      show(stateProc);
+      procFile.textContent = file.name;
+      procSize.textContent = fmtSize(file.size);
+      procMsg.textContent  = processingMsg(file.name);
+
+      const fd = new FormData();
+      fd.append('file', file);
+
+      try {
+        const res = await fetch('/convert', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || 'HTTP ' + res.status);
+        }
+
+        const ct = res.headers.get('content-type') || '';
+        const cd = res.headers.get('content-disposition') || '';
+        const fname = extractFilename(cd) || fallbackName(file.name);
+
+        if (ct.includes('text/csv') || fname.endsWith('.csv')) {
+          const blob = await res.blob();
+          const url  = URL.createObjectURL(blob);
+          stateOk.innerHTML = successCSV(fname, file.size, url);
+          show(stateOk);
+        } else if (ct.includes('text/markdown') || ct.includes('text/plain') || fname.endsWith('.md')) {
+          const text = await res.text();
+          stateOk.innerHTML = successMD(fname, file.size, text);
+          show(stateOk);
+        } else {
+          const blob = await res.blob();
+          const url  = URL.createObjectURL(blob);
+          stateOk.innerHTML = successCSV(fname, file.size, url);
+          show(stateOk);
+        }
+      } catch (e) {
+        stateErr.innerHTML = errorHTML(e.message);
+        show(stateErr);
+      }
+    }
+
+    /* ── Templates ── */
+    function successCSV(name, size, url) {
+      return '<div style="text-align:center" class="fade-in">'
+        + '<span class="success-badge">Completado</span>'
+        + '<p class="result-name">' + esc(name) + '</p>'
+        + '<p class="result-size">' + fmtSize(size) + '</p>'
+        + '<a class="pill pill-primary" href="' + url + '" download="' + esc(name) + '">Descargar .csv</a>'
+        + '<div style="text-align:center;margin-top:16px"><button class="pill pill-ghost" onclick="reset()">Convertir otro documento</button></div>'
+        + '</div>';
+    }
+
+    function successMD(name, size, text) {
+      const id = 'md-' + Date.now();
+      return '<div style="text-align:center" class="fade-in">'
+        + '<span class="success-badge">Completado</span>'
+        + '<p class="result-name">' + esc(name) + '</p>'
+        + '<p class="result-size">' + fmtSize(size) + '</p>'
+        + '</div>'
+        + '<div class="md-viewer"><pre id="' + id + '">' + esc(text) + '</pre></div>'
+        + '<div class="btn-row">'
+        + '<button class="pill pill-primary" onclick="downloadMD(\'' + id + '\',\'' + esc(name) + '\')">Descargar .md</button>'
+        + '<button class="pill pill-outline" onclick="copyMD(\'' + id + '\')">Copiar</button>'
+        + '</div>'
+        + '<div style="text-align:center;margin-top:16px"><button class="pill pill-ghost" onclick="reset()">Convertir otro documento</button></div>';
+    }
+
+    function errorHTML(msg) {
+      return '<div style="text-align:center" class="fade-in">'
+        + '<div class="error-icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg></div>'
+        + '<p class="eyebrow">Error en conversión</p>'
+        + '<p class="error-msg">' + esc(msg) + '</p>'
+        + '<button class="pill pill-outline" onclick="reset()">Reintentar</button>'
+        + '</div>';
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    /* ── Markdown actions ── */
+    function downloadMD(preId, name) {
+      const text = document.getElementById(preId).textContent;
+      const blob = new Blob([text], { type: 'text/markdown' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function copyMD(preId) {
+      const text = document.getElementById(preId).textContent;
+      navigator.clipboard.writeText(text).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
       });
     }
 
-    async function convertFile(file, route) {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('route', route);
-
-      try {
-        const response = await fetch('/convert', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({detail: 'Error desconocido'}));
-          throw new Error(err.detail || `HTTP ${response.status}`);
-        }
-
-        // Obtener blob y forzar descarga
-        const blob = await response.blob();
-        const filename = getFilenameFromResponse(response, file.name, route);
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-
-        // Mostrar feedback en UI
-        addResult(file.name, filename, 'success');
-
-      } catch (err) {
-        addResult(file.name, err.message, 'error');
-      } finally {
-        document.getElementById('status').textContent = '';
-      }
+    /* ── Reset ── */
+    function reset() {
+      show(stateIdle);
+      fileInput.value = '';
     }
 
-    function getFilenameFromResponse(response, originalName, route) {
-      const cd = response.headers.get('Content-Disposition');
-      if (cd) {
-        const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (match) return match[1].replace(/['"]/g, '');
-      }
-      // Fallback
-      const base = originalName.rsplit('.', 1)[0];
-      return route === 'finance' ? `${base}.csv` : `${base}.md`;
-    }
-
-    function addResult(original, result, type) {
-      const area = document.getElementById('result-area');
-      const div = document.createElement('div');
-      div.className = `flex items-center gap-3 p-3 rounded-lg bg-white border ${
-        type === 'success' ? 'border-green-200' : 'border-red-200'
-      }`;
-      div.innerHTML = `
-        <span class="text-lg">${type === 'success' ? '✅' : '❌'}</span>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium truncate">${original}</p>
-          <p class="text-xs text-slate-500 truncate">${result}</p>
-        </div>
-      `;
-      area.prepend(div);
-    }
-
-    // Click en drop zone → abre selector
-    document.getElementById('drop-section').addEventListener('click', () => {
-      document.getElementById('file-input').click();
+    /* ── Event binding ── */
+    dropzone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) convert(fileInput.files[0]);
     });
-
-    // Input hidden del drop zone
-    document.getElementById('file-input').addEventListener('change', (e) => {
-      handleFiles(e.target.files);
-      e.target.value = '';
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) convert(e.dataTransfer.files[0]);
     });
   </script>
+
 </body>
 </html>
