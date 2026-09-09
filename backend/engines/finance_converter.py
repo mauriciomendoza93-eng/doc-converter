@@ -260,54 +260,15 @@ def _extract_transactions(df: pd.DataFrame) -> pd.DataFrame:
     ]]
 
 
-def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
+def _finalize_finance_csv(df: pd.DataFrame, banco: str, original_name: str) -> dict:
     """
-    Stateless: recibe bytes y nombre original, devuelve BytesIO + filename.
+    Cola común del pipeline financiero: recibe un DataFrame crudo (con columnas
+    de fecha/descripción/monto detectables) y un banco ya resuelto, y produce
+    el CSV categorizado final. Compartida por la ruta Excel/CSV y la ruta
+    de extracción por visión (PDF/imagen).
 
     Retorna: { 'buffer': io.BytesIO, 'filename': str, 'entity': str, 'period': str, 'rows': int, 'success': bool, 'error'?: str }
     """
-    ext = original_name.rsplit('.', 1)[-1].lower() if '.' in original_name else ''
-
-    try:
-        if ext in ('xlsx', 'xlsm', 'xlsb'):
-            # Leer SIN cabecera para detectar la fila real de columnas
-            df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl', header=None)
-        elif ext == 'xls':
-            df = pd.read_excel(io.BytesIO(file_bytes), engine='xlrd', header=None)
-        elif ext == 'csv':
-            # CSV: leer con header=None también
-            df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8', on_bad_lines='skip', header=None)
-        else:
-            return {'success': False, 'error': f'Formato no soportado para finanzas: .{ext}'}
-    except Exception as e:
-        return {'success': False, 'error': f'Error leyendo archivo: {e}'}
-
-    # Guardar texto de las primeras 30 filas para detección de banco
-    header_text = ""
-    for i in range(min(30, len(df))):
-        header_text += " ".join(df.iloc[i].astype(str).str.lower().tolist()) + " "
-
-    # Detección dinámica de la cabecera real (primeras 30 filas)
-    # Conversión segura a string para evitar error numpy.float64
-    header_idx = 0
-    for i in range(min(30, len(df))):
-        # Convierte la fila entera a string, luego a minúsculas, y la une en un solo texto
-        row_text = " ".join(df.iloc[i].astype(str).str.lower().tolist())
-
-        if "fecha" in row_text and any(w in row_text for w in ["monto", "cargo", "abono", "importe", "retiro"]):
-            header_idx = i
-            break
-
-    # Asigna las nuevas cabeceras y recorta la basura superior
-    df.columns = df.iloc[header_idx]
-    df = df[header_idx + 1:].reset_index(drop=True)
-
-    # Normaliza los nombres de las columnas a string para evitar fallos en el mapeo posterior
-    df.columns = df.columns.astype(str).str.strip()
-
-    # Detectar banco usando cabecera + nombre de archivo
-    banco = _detect_banco(header_text, original_name)
-
     try:
         txns = _extract_transactions(df)
     except Exception as e:
@@ -354,3 +315,79 @@ def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
         'rows': len(txns),
         'success': True,
     }
+
+
+def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
+    """
+    Stateless: recibe bytes y nombre original, devuelve BytesIO + filename.
+    Lee planillas (.xls/.xlsx/.csv).
+
+    Retorna: { 'buffer': io.BytesIO, 'filename': str, 'entity': str, 'period': str, 'rows': int, 'success': bool, 'error'?: str }
+    """
+    ext = original_name.rsplit('.', 1)[-1].lower() if '.' in original_name else ''
+
+    try:
+        if ext in ('xlsx', 'xlsm', 'xlsb'):
+            # Leer SIN cabecera para detectar la fila real de columnas
+            df = pd.read_excel(io.BytesIO(file_bytes), engine='openpyxl', header=None)
+        elif ext == 'xls':
+            df = pd.read_excel(io.BytesIO(file_bytes), engine='xlrd', header=None)
+        elif ext == 'csv':
+            # CSV: leer con header=None también
+            df = pd.read_csv(io.BytesIO(file_bytes), encoding='utf-8', on_bad_lines='skip', header=None)
+        else:
+            return {'success': False, 'error': f'Formato no soportado para finanzas: .{ext}'}
+    except Exception as e:
+        return {'success': False, 'error': f'Error leyendo archivo: {e}'}
+
+    # Guardar texto de las primeras 30 filas para detección de banco
+    header_text = ""
+    for i in range(min(30, len(df))):
+        header_text += " ".join(df.iloc[i].astype(str).str.lower().tolist()) + " "
+
+    # Detección dinámica de la cabecera real (primeras 30 filas)
+    # Conversión segura a string para evitar error numpy.float64
+    header_idx = 0
+    for i in range(min(30, len(df))):
+        # Convierte la fila entera a string, luego a minúsculas, y la une en un solo texto
+        row_text = " ".join(df.iloc[i].astype(str).str.lower().tolist())
+
+        if "fecha" in row_text and any(w in row_text for w in ["monto", "cargo", "abono", "importe", "retiro"]):
+            header_idx = i
+            break
+
+    # Asigna las nuevas cabeceras y recorta la basura superior
+    df.columns = df.iloc[header_idx]
+    df = df[header_idx + 1:].reset_index(drop=True)
+
+    # Normaliza los nombres de las columnas a string para evitar fallos en el mapeo posterior
+    df.columns = df.columns.astype(str).str.strip()
+
+    # Detectar banco usando cabecera + nombre de archivo
+    banco = _detect_banco(header_text, original_name)
+
+    return _finalize_finance_csv(df, banco, original_name)
+
+
+def convert_to_finance_csv_from_transactions(transacciones: list, banco: str, original_name: str) -> dict:
+    """
+    Variante del pipeline financiero para transacciones ya extraídas (ej. por
+    OCR de Gemini sobre un PDF/imagen), en vez de leídas de una planilla.
+
+    `transacciones`: lista de dicts con claves 'fecha', 'descripcion', 'monto'
+    (monto con signo: negativo = egreso). `banco`: nombre de banco ya
+    detectado (por el propio OCR); si viene vacío, se intenta por nombre de
+    archivo con `_detect_banco`.
+
+    Retorna el mismo formato que `convert_to_finance_csv`.
+    """
+    if not transacciones:
+        return {'success': False, 'error': 'No se encontraron transacciones válidas'}
+
+    df = pd.DataFrame(transacciones).rename(columns={
+        'fecha': 'Fecha', 'descripcion': 'Descripcion', 'monto': 'Monto',
+    })
+
+    banco = (banco or '').strip() or _detect_banco('', original_name)
+
+    return _finalize_finance_csv(df, banco, original_name)

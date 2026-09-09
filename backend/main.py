@@ -23,7 +23,7 @@ from mangum import Mangum
 # Asegurar que el paquete 'backend' sea importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.engines.document_converter import convert_to_markdown
+from backend.engines.document_converter import convert_to_markdown, convert_document_smart
 from backend.engines.finance_converter import convert_to_finance_csv
 
 
@@ -71,8 +71,11 @@ async def convert(file: UploadFile = File(...), route: str = Form('auto')):
                 headers={'Content-Disposition': f'attachment; filename="{filename}"'},
             )
 
+        # PDF/imagen: un único llamado a Gemini clasifica (¿es un extracto
+        # bancario?) y extrae en el mismo paso. Si es financiero, se categoriza
+        # con el mismo motor que Excel/CSV; si no, se transcribe a Markdown.
         if route == 'finance':
-            result = convert_to_finance_csv(file_bytes, original_name)
+            result = convert_document_smart(file_bytes, original_name, force_finance=True)
             if not result.get('success'):
                 raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
             buffer = result['buffer']
@@ -88,27 +91,14 @@ async def convert(file: UploadFile = File(...), route: str = Form('auto')):
             buffer = io.BytesIO(md.encode('utf-8'))
             buffer.seek(0)
         else:  # auto
-            name = original_name.lower()
-            bank_kw = ['extracto', 'movimientos', 'cuenta', 'banco', 'transferencia']
-            if any(kw in name for kw in bank_kw):
-                result = convert_to_finance_csv(file_bytes, original_name)
-                if not result.get('success'):
-                    result = convert_to_markdown(file_bytes, original_name)
-                    if not result.get('success'):
-                        raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
-                    md = result['markdown']
-                    filename = result.get('filename') or (original_name.rsplit('.', 1)[0] + '.md')
-                    media_type = 'text/markdown'
-                    buffer = io.BytesIO(md.encode('utf-8'))
-                    buffer.seek(0)
-                else:
-                    buffer = result['buffer']
-                    filename = result['filename']
-                    media_type = 'text/csv'
+            result = convert_document_smart(file_bytes, original_name, force_finance=False)
+            if not result.get('success'):
+                raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
+            if result.get('type') == 'finance':
+                buffer = result['buffer']
+                filename = result['filename']
+                media_type = 'text/csv'
             else:
-                result = convert_to_markdown(file_bytes, original_name)
-                if not result.get('success'):
-                    raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
                 md = result['markdown']
                 filename = result.get('filename') or (original_name.rsplit('.', 1)[0] + '.md')
                 media_type = 'text/markdown'

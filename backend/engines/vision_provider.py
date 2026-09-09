@@ -15,17 +15,18 @@ class VisionProvider(ABC):
     """Interfaz común para todos los proveedores de visión/OCR."""
 
     @abstractmethod
-    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str) -> str:
+    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
         """
-        Procesa un documento (PDF o imagen) y retorna texto Markdown.
+        Procesa un documento (PDF o imagen) y retorna texto (Markdown o JSON crudo).
 
         Args:
             file_bytes: Bytes crudos del archivo
             mime_type: MIME type del archivo (ej. "application/pdf", "image/jpeg")
             prompt: Prompt de instrucciones para el modelo
+            response_mime_type: Si se pasa "application/json", fuerza salida JSON válida
 
         Returns:
-            Texto Markdown transcrito
+            Texto transcrito (Markdown o JSON, según el prompt/response_mime_type)
         """
         pass
 
@@ -38,13 +39,15 @@ class GeminiProvider(VisionProvider):
             raise RuntimeError("GEMINI_API_KEY no configurada en variables de entorno")
         self.client = genai.Client()
 
-    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str) -> str:
+    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
+        config = types.GenerateContentConfig(response_mime_type=response_mime_type) if response_mime_type else None
         response = self.client.models.generate_content(
             model='gemini-3.6-flash',
             contents=[
                 types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
                 prompt,
-            ]
+            ],
+            config=config,
         )
         return response.text
 
@@ -52,7 +55,7 @@ class GeminiProvider(VisionProvider):
 class MockLocalProvider(VisionProvider):
     """Proveedor mock local (placeholder futuro para Tesseract/otros)."""
 
-    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str) -> str:
+    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
         return (
             "[ADVERTENCIA] MockLocalProvider activado. "
             "Este es un placeholder. Integre Tesseract u otro OCR local aquí."
