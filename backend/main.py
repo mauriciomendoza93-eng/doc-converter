@@ -83,7 +83,7 @@ async def convert(file: UploadFile = File(...), route: str = Form('auto')):
             if not result.get('success'):
                 raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
             md = result['markdown']
-            filename = original_name.rsplit('.', 1)[0] + '.md'
+            filename = result.get('filename') or (original_name.rsplit('.', 1)[0] + '.md')
             media_type = 'text/markdown'
             buffer = io.BytesIO(md.encode('utf-8'))
             buffer.seek(0)
@@ -97,7 +97,7 @@ async def convert(file: UploadFile = File(...), route: str = Form('auto')):
                     if not result.get('success'):
                         raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
                     md = result['markdown']
-                    filename = original_name.rsplit('.', 1)[0] + '.md'
+                    filename = result.get('filename') or (original_name.rsplit('.', 1)[0] + '.md')
                     media_type = 'text/markdown'
                     buffer = io.BytesIO(md.encode('utf-8'))
                     buffer.seek(0)
@@ -110,7 +110,7 @@ async def convert(file: UploadFile = File(...), route: str = Form('auto')):
                 if not result.get('success'):
                     raise HTTPException(status_code=500, detail=result.get('error', 'Error en conversión'))
                 md = result['markdown']
-                filename = original_name.rsplit('.', 1)[0] + '.md'
+                filename = result.get('filename') or (original_name.rsplit('.', 1)[0] + '.md')
                 media_type = 'text/markdown'
                 buffer = io.BytesIO(md.encode('utf-8'))
                 buffer.seek(0)

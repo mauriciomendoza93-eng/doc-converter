@@ -7,11 +7,27 @@ Concepto, Categoria, Cuenta / Destino.
 """
 
 import io
+import json
+import os
 import re
 from datetime import datetime
 import pandas as pd
 
 from backend.utils.validators import validate_csv
+
+# Categorías válidas (misma taxonomía usada en finanzas-personales/src/parser.gs
+# para mantener consistencia entre ambos proyectos).
+CATEGORIAS_VALIDAS = [
+    'Alquiler', 'Rendimientos', 'Otros ingresos',
+    'Impuestos', 'Retiros ATM', 'Suscripciones', 'Servicios Básicos', 'Salud',
+    'Mantenimiento/Otros', 'Deporte', 'Alimentación', 'Combustible', 'Supermercado',
+    'Entretenimiento', 'Préstamos', 'Depósito a Plazo Fijo',
+    'Transferencias Interbancarias', 'Pagos vía Yape', 'Transferencia QR',
+    'Transferencia a Proveedores', 'Pagos Tarjetas de Crédito', 'Otros',
+]
+
+# Categorías "sin match" que quedan como candidatas para clasificación por IA.
+_CATEGORIAS_FALLBACK = {'Otros', 'Otros ingresos'}
 
 
 def _parse_date(value) -> str:
@@ -60,6 +76,105 @@ def _detect_tipo_movimiento(desc: str, amount: float) -> str:
 
 def _detect_flujo_financiero(amount: float) -> str:
     return 'Entrada' if amount > 0 else 'Salida'
+
+
+def _detect_categoria(desc: str, monto: float, tipo_movimiento: str) -> str:
+    """
+    Motor de reglas de categorización automática por keyword matching.
+
+    Portado de la función `determinarMetadatos` en
+    finanzas/src/parser.gs (paso 4: reglas exhaustivas), sin la etapa de
+    historial de usuario (doc-conventer es stateless, no persiste transacciones
+    previas). El orden de las condiciones es intencional: reglas más
+    específicas primero para evitar falsos positivos (ej. "yape"/"qr" antes
+    de la regla genérica de transferencias).
+    """
+    d = (desc or '').lower()
+    es_ingreso = monto > 0 or tipo_movimiento in ('Ingreso', 'Entrada')
+    es_egreso = monto < 0 or tipo_movimiento in ('Pago', 'Egreso', 'Retiro')
+
+    categoria = 'Otros ingresos' if monto > 0 else 'Otros'
+
+    if es_ingreso:
+        inquilinos_conocidos = ['adela palacios', 'sifuentes ceron', 'gonzales villarpando', 'martha cristina mena']
+        es_alquiler = 'alquiler' in d or 'alkiler' in d or any(inq in d for inq in inquilinos_conocidos)
+        if es_alquiler:
+            categoria = 'Alquiler'
+        elif any(k in d for k in ['interesganado', 'interes ganado', 'rendimiento']):
+            categoria = 'Rendimientos'
+
+    if es_egreso:
+        if any(k in d for k in ['rciva', 'impuestos', 'retencion', 'retención', 'it', 'iva', 'determinacion']):
+            categoria = 'Impuestos'
+        elif 'atm' in d or 'retiro' in d or tipo_movimiento == 'Retiro':
+            categoria = 'Retiros ATM'
+        elif any(k in d for k in ['apple.com', 'spotify', 'netflix', 'amazon prime', 'hbo', 'disney', 'youtube premium', 'icloud', 'apple storage']):
+            categoria = 'Suscripciones'
+        elif any(k in d for k in ['pago de servicios', 'cotes', 'entel', 'cessa', 'delapaz', 'telefonica', 'tigo', 'viva', 'electro', 'agua potable', 'teléfono', 'luz', 'electricidad domicilio', 'gas domiciliario']):
+            categoria = 'Servicios Básicos'
+        elif any(k in d for k in ['farmacorp', 'farmacia', 'hospital', 'clinica', 'medico', 'medicina', 'ecografia', 'ecograf', 'dental', 'oftalmolog', 'laboratorio', 'analisis', 'consultorio']):
+            categoria = 'Salud'
+        elif any(k in d for k in ['porton', 'soporte magnetico', 'soporte magnético', 'honorario', 'honorarios', 'reparacion', 'reparación', 'mantenimiento', 'plomeria', 'plomería', 'albañil']):
+            categoria = 'Mantenimiento/Otros'
+        elif any(k in d for k in ['mancuernas', 'gym', 'smartfit', 'fitness', 'deporte', 'crossfit', 'yoga', 'pilates']):
+            categoria = 'Deporte'
+        elif any(k in d for k in ['hamburguesa', 'restaurante', 'cafe', 'café', 'almuerzo', 'comida', 'comedor', 'pizzeria', 'pizzería', 'sushi', 'comida rapida', 'delivery', 'rappi', 'pedidosya']):
+            categoria = 'Alimentación'
+        elif any(k in d for k in ['combustible', 'gasolina', 'estacion', 'estación', 'yacuiba', 'yprensa', 'bp', 'shell', 'petrobras']):
+            categoria = 'Combustible'
+        elif any(k in d for k in ['supermercado', 'ketal', 'hipermaxi', 'walmart', 'todo en uno', 'hiper']):
+            categoria = 'Supermercado'
+        elif any(k in d for k in ['cine', 'teatro', 'concierto', 'evento', 'streaming']):
+            categoria = 'Entretenimiento'
+        elif any(k in d for k in ['prestamo', 'préstamo', 'credito', 'crédito', 'cuota', 'amortizacion', 'amortización', 'financiamiento']):
+            categoria = 'Préstamos'
+        elif 'plazo fijo' in d or 'depósito a plazo' in d or 'deposito a plazo' in d:
+            categoria = 'Depósito a Plazo Fijo'
+        elif 'interbancaria' in d or 'ach' in d or 'transferencia bm' in d:
+            categoria = 'Transferencias Interbancarias'
+        elif 'yape' in d:
+            categoria = 'Pagos vía Yape'
+        elif 'qr' in d and 'retiro' not in d and 'atm' not in d:
+            categoria = 'Transferencia QR'
+        elif 'abono en cuenta' in d or 'proveedor' in d or 'pago qr' in d:
+            categoria = 'Transferencia a Proveedores'
+        elif any(k in d for k in ['tarjeta', 'dismac', 'visa', 'mastercard']):
+            categoria = 'Pagos Tarjetas de Crédito'
+
+    return categoria
+
+
+def _ai_categorize_fallback(conceptos: list) -> dict:
+    """
+    Clasifica por IA (Gemini) los conceptos que las reglas de keyword no
+    lograron identificar (quedaron en 'Otros' / 'Otros ingresos').
+
+    Best-effort: si GEMINI_API_KEY no está configurada o la llamada falla,
+    retorna {} y las filas conservan la categoría por defecto de las reglas.
+    """
+    if not conceptos or not os.getenv('GEMINI_API_KEY'):
+        return {}
+
+    try:
+        from google import genai
+
+        client = genai.Client()
+        lista = '\n'.join(f'- {c}' for c in conceptos)
+        categorias = ', '.join(c for c in CATEGORIAS_VALIDAS if c not in _CATEGORIAS_FALLBACK)
+        prompt = (
+            'Eres un clasificador de movimientos bancarios bolivianos. '
+            f'Para cada concepto de la lista, asigna EXACTAMENTE una categoría de esta lista: {categorias}. '
+            'Si genuinamente ninguna categoría aplica, usa "Otros" (egresos) u "Otros ingresos" (ingresos). '
+            'Responde SOLO con un objeto JSON plano {"concepto exacto": "categoria"}, sin markdown ni explicaciones.\n\n'
+            f'Conceptos:\n{lista}'
+        )
+        response = client.models.generate_content(model='gemini-3.6-flash', contents=[prompt])
+        text = response.text.strip()
+        text = re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
+        mapping = json.loads(text)
+        return {k: v for k, v in mapping.items() if v in CATEGORIAS_VALIDAS}
+    except Exception:
+        return {}
 
 
 def _detect_banco(header_text: str, filename: str) -> str:
@@ -120,13 +235,24 @@ def _extract_transactions(df: pd.DataFrame) -> pd.DataFrame:
     out['Concepto'] = df[desc_col].apply(_clean_concepto)
     out['Monto'] = df[amount_col]
 
-    # Tipo y flujo se detectan con el signo original antes de normalizar a absoluto.
+    # Tipo, flujo y categoría se detectan con el signo original antes de normalizar a absoluto.
     out['Tipo de Movimiento'] = out.apply(lambda r: _detect_tipo_movimiento(str(r['Concepto']), r['Monto']), axis=1)
     out['Flujo Financiero'] = out['Monto'].apply(_detect_flujo_financiero)
+    out['Categoria'] = out.apply(
+        lambda r: _detect_categoria(r['Concepto'], r['Monto'], r['Tipo de Movimiento']),
+        axis=1,
+    )
+
+    # Fallback por IA: clasifica los conceptos que las reglas dejaron en
+    # 'Otros' / 'Otros ingresos' (best-effort, no bloquea la conversión si falla).
+    pendientes = out.loc[out['Categoria'].isin(_CATEGORIAS_FALLBACK), 'Concepto'].unique().tolist()
+    ai_mapping = _ai_categorize_fallback(pendientes)
+    if ai_mapping:
+        mask = out['Categoria'].isin(_CATEGORIAS_FALLBACK)
+        out.loc[mask, 'Categoria'] = out.loc[mask, 'Concepto'].map(ai_mapping).fillna(out.loc[mask, 'Categoria'])
 
     # Normalizar el monto a valor absoluto (abs()).
     out['Monto'] = out['Monto'].abs()
-    out['Categoria'] = ''
 
     return out[[
         'Tipo de Movimiento', 'Flujo Financiero', 'Monto',
@@ -193,13 +319,22 @@ def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
     # Rellenar toda la columna "Cuenta / Destino" con el banco detectado
     txns['Cuenta / Destino'] = banco
 
-    # Nombre dinámico: extracto-{banco}-{mes}-{año}.csv
-    now = datetime.now()
-    mes = now.strftime('%m')
-    año = now.strftime('%Y')
+    # Nombre dinámico: extracto-{banco}-{periodo}.csv
+    # El periodo se extrae de las fechas reales de las transacciones (no la fecha
+    # del sistema), para que el nombre refleje el contenido real del extracto.
+    fechas = pd.to_datetime(txns['Fecha de Operacion'], errors='coerce').dropna()
+    if not fechas.empty:
+        inicio, fin = fechas.min(), fechas.max()
+        if (inicio.year, inicio.month) == (fin.year, fin.month):
+            periodo = inicio.strftime('%m-%Y')
+        else:
+            periodo = f"{inicio.strftime('%m-%Y')}_a_{fin.strftime('%m-%Y')}"
+    else:
+        periodo = datetime.now().strftime('%m-%Y')
+
     # Normalizar nombre del banco para el archivo (minúsculas, sin espacios/tildes)
     banco_slug = banco.lower().replace(' ', '-').replace('ó', 'o').replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ú', 'u')
-    fname = f"extracto-{banco_slug}-{mes}-{año}.csv"
+    fname = f"extracto-{banco_slug}-{periodo}.csv"
 
     csv_content = txns.to_csv(index=False)
 
@@ -215,7 +350,7 @@ def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
         'buffer': buffer,
         'filename': fname,
         'entity': banco,
-        'period': f'{mes}-{año}',
+        'period': periodo,
         'rows': len(txns),
         'success': True,
     }
