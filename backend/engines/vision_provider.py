@@ -6,6 +6,7 @@ la lógica de conversión. Siguiendo el patrón Strategy + Factory.
 """
 
 import os
+import time
 from google import genai
 from google.genai import types
 from abc import ABC, abstractmethod
@@ -41,15 +42,36 @@ class GeminiProvider(VisionProvider):
 
     def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
         config = types.GenerateContentConfig(response_mime_type=response_mime_type) if response_mime_type else None
-        response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=[
-                types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-                prompt,
-            ],
-            config=config,
-        )
-        return response.text
+
+        # Reintentos acotados solo para errores transitorios de disponibilidad
+        # (503 UNAVAILABLE por alta demanda). El backoff es corto a propósito:
+        # la función serverless corre con maxDuration limitado (plan gratuito).
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=[
+                        types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
+                        prompt,
+                    ],
+                    config=config,
+                )
+                return response.text
+            except Exception as e:
+                msg = str(e)
+                if '429' in msg or 'RESOURCE_EXHAUSTED' in msg:
+                    # Cuota gratuita de Gemini agotada (20 requests/día en el
+                    # tier gratuito) — reintentar no ayuda, hay que esperar.
+                    raise RuntimeError(
+                        'Se alcanzó el límite diario gratuito de Gemini (20 solicitudes/día). '
+                        'Intenta de nuevo más tarde o usa otra GEMINI_API_KEY.'
+                    ) from e
+                is_transient = '503' in msg or 'UNAVAILABLE' in msg
+                if is_transient and attempt < max_retries:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise
 
 
 class MockLocalProvider(VisionProvider):
