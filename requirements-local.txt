@@ -1,0 +1,6 @@
+# Dependencias extra para la conversión local (Finder/CLI). No se usan en Vercel.
+# Instalar DESPUÉS de requirements.txt (markitdown actualiza python-dotenv, compatible):
+#   .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m pip install -r requirements-local.txt
+markitdown[docx,pptx]==0.1.7
+pymupdf4llm==0.0.17
+ocrmac==1.0.1

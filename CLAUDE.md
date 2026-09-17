@@ -26,15 +26,18 @@ vercel --prod
 
 ## Uso local (Finder / CLI)
 
-`backend/cli.py` replica el enrutamiento de `/convert` sobre archivos del disco y
-escribe el resultado junto al original. `cli/finder/install.sh` instala el
-Servicio de Finder **Convertir con Doc Converter** (ver `cli/finder/README.md`).
-Usa `.venv/` + `.env` del proyecto.
+`backend/cli.py` convierte archivos del disco y `cli/finder/install.sh` instala
+los Servicios de Finder **Convertir con Doc Converter** (local) y **(IA)**
+(Gemini). Detalle en `cli/finder/README.md`. Usa `.venv/` + `.env` del proyecto.
 
 ```bash
-.venv/bin/python -m backend.cli <archivo|carpeta> [--route auto|finance|markdown]
+.venv/bin/python -m backend.cli <archivo|carpeta> [--engine local|ai] [--route auto|finance|markdown]
 cli/finder/install.sh   # registra el clic derecho > Servicios
 ```
+
+`backend/engines/local_converter.py` es el motor local (markitdown, textutil,
+pymupdf4llm y OCR de Vision por página). Solo lo usa el CLI: sus dependencias
+están en `requirements-local.txt` y **no** se despliegan en Vercel.
 
 ## Arquitectura (big picture)
 
