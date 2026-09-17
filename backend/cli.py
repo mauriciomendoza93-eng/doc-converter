@@ -9,7 +9,8 @@ Uso:
 PDF con capa de texto con pymupdf4llm, páginas escaneadas e imágenes con el OCR
 nativo de Vision). Gemini solo interviene en extractos bancarios, que necesitan
 un modelo para extraer las transacciones. --engine ai: todo PDF/imagen pasa por
-Gemini (mismo comportamiento que la web).
+Gemini, pero solo el TEXTO que ya extrajo la Mac, para que lo reestructure
+(una solicitud por documento en vez de una por cada 10-20 páginas).
 
 El resultado (.csv o .md) se escribe junto al archivo original. Si ya existe
 un archivo con ese nombre, se agrega un sufijo numérico en vez de sobrescribir.
@@ -36,7 +37,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_DIR / '.env')
 logging.getLogger('google_genai').setLevel(logging.ERROR)
 
-from backend.engines import local_converter
+from backend.engines import local_converter, text_structurer
 from backend.engines.document_converter import convert_to_markdown, convert_document_smart
 from backend.engines.finance_converter import convert_to_finance_csv
 
@@ -116,6 +117,33 @@ def expand_inputs(paths: list) -> list:
     return jobs
 
 
+def extract_text_locally(path: Path) -> str:
+    """Texto crudo del archivo, extraído íntegramente en la Mac."""
+    ext = path.suffix.lower()
+    if ext in local_converter.OFFICE_EXTS:
+        return local_converter.convert_office(str(path))
+    if ext in local_converter.IMAGE_EXTS:
+        return local_converter.convert_image(str(path))
+    return local_converter.convert_pdf(path.read_bytes())[0]
+
+
+def convert_path_ai(path: Path, route: str) -> tuple:
+    """Modo IA: extrae el texto localmente y se lo pasa a Gemini para que lo
+    reestructure. Si Gemini no está disponible, conserva el texto local en vez
+    de perder la conversión, y lo declara en el método."""
+    ext = path.suffix.lower()
+    if ext in FINANCE_EXTS or route == 'finance' or ext not in (DOCUMENT_EXTS | local_converter.OFFICE_EXTS | local_converter.IMAGE_EXTS):
+        return None  # planillas y extractos bancarios siguen su propio camino
+
+    text = extract_text_locally(path)
+    if not text.strip():
+        return None  # sin texto extraíble: que lo intente la visión de Gemini
+    try:
+        return (*_local_markdown(path.name, text_structurer.structure_markdown(text)), 'local+ia')
+    except Exception as e:
+        return (*_local_markdown(path.name, text), f'local, IA no disponible: {e}')
+
+
 def convert_path(path: Path, out_dir: Path, route: str, engine: str) -> tuple:
     ext = path.suffix.lower()
     if ext in ALREADY_TEXT_EXTS:
@@ -123,7 +151,9 @@ def convert_path(path: Path, out_dir: Path, route: str, engine: str) -> tuple:
     if ext not in SUPPORTED_EXTS:
         raise RuntimeError(f'tipo de archivo no soportado ({path.suffix or "sin extensión"})')
     result = None
-    if engine == 'local' or ext in local_converter.OFFICE_EXTS or ext in local_converter.IMAGE_EXTS:
+    if engine == 'ai':
+        result = convert_path_ai(path, route)
+    elif engine == 'local' or ext in local_converter.OFFICE_EXTS or ext in local_converter.IMAGE_EXTS:
         result = convert_path_local_first(path, route)
     if result is None:
         method = 'local' if ext in FINANCE_EXTS else 'gemini'

@@ -5,7 +5,19 @@
 | Servicio | Motor | Cuándo usarlo |
 |---|---|---|
 | **Convertir con Doc Converter** | Local (`--engine local`) | Siempre. Segundos, sin cuota. |
-| **Convertir con Doc Converter (IA)** | Gemini (`--engine ai`) | Cuando el local no respetó bien la estructura: formularios densos, tablas complejas. |
+| **Convertir con Doc Converter (IA)** | Local + Gemini (`--engine ai`) | Cuando el local no respetó bien la estructura: formularios densos, tablas complejas. |
+
+El modo IA **no manda el documento a Gemini**: el OCR se hace igual en tu Mac y a
+Gemini le llega solo el texto extraído, para que reconstruya títulos y tablas.
+Eso es una solicitud por documento sin importar cuántas páginas tenga (mandar las
+imágenes gastaba una por cada 10-20 páginas y tardaba minutos). Si Gemini no está
+disponible (sin cuota o sin red), se conserva el texto local y el registro lo
+declara: `[local, IA no disponible: ...]`.
+
+Por qué el local solo no alcanza en algunos documentos: el OCR lee el texto y
+dónde está, pero no interpreta el diseño. En un formulario a varias columnas
+entrega los fragmentos y el orden se arma con reglas de geometría, que fallan
+cuando el diseño es denso. El modelo sí reconstruye esa estructura.
 
 ## Qué hace cada formato (motor local)
 

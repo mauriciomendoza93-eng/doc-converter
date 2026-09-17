@@ -36,8 +36,10 @@ cli/finder/install.sh   # registra el clic derecho > Servicios
 ```
 
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
-pymupdf4llm y OCR de Vision por página). Solo lo usa el CLI: sus dependencias
-están en `requirements-local.txt` y **no** se despliegan en Vercel.
+pymupdf4llm y OCR de Vision por página) y `backend/engines/text_structurer.py`
+reestructura ese texto con Gemini en modo texto (`--engine ai`). Solo los usa el
+CLI: sus dependencias están en `requirements-local.txt` y **no** se despliegan en
+Vercel.
 
 ## Arquitectura (big picture)
 

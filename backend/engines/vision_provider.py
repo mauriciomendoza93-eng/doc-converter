@@ -40,7 +40,18 @@ class GeminiProvider(VisionProvider):
             raise RuntimeError("GEMINI_API_KEY no configurada en variables de entorno")
         self.client = genai.Client()
 
+    def process_text(self, text: str, prompt: str) -> str:
+        """Llamada solo-texto (sin imágenes): reestructurar texto ya extraído.
+        Usa el mismo modelo y el mismo manejo de errores que process_document."""
+        return self._generate([prompt, text], None)
+
     def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
+        return self._generate(
+            [types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
+            response_mime_type,
+        )
+
+    def _generate(self, contents: list, response_mime_type: str = None) -> str:
         config = types.GenerateContentConfig(response_mime_type=response_mime_type) if response_mime_type else None
 
         # Reintentos acotados solo para errores transitorios de disponibilidad
@@ -51,10 +62,7 @@ class GeminiProvider(VisionProvider):
             try:
                 response = self.client.models.generate_content(
                     model='gemini-3.6-flash',
-                    contents=[
-                        types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-                        prompt,
-                    ],
+                    contents=contents,
                     config=config,
                 )
                 return response.text
