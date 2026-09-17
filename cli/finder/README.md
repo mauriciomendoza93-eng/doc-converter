@@ -9,25 +9,15 @@
 
 ## Motores disponibles (`--engine`)
 
-| Motor | Qué hace | Medido |
+| Motor | Qué hace | Medido con documentos reales |
 |---|---|---|
-| `local` (default) | OCR y extracción en la Mac, sin modelo | 6 archivos en 7 s; no estructura formularios |
-| `ai` | Local + un modelo reestructura el texto | Formulario 23 s · avalúo de 21 páginas 57 s, con tablas |
-| `vision` | Manda las imágenes a Gemini (como la web) | El más lento y el que más cuota gasta; el único que corrige errores del OCR |
+| `local` (default) | OCR y extracción en la Mac, sin modelo | 6 archivos en 7 s. No estructura formularios |
+| `ai` | Local + Gemini reestructura el texto | Formulario 23 s · avalúo de 21 páginas 57 s, con tablas |
+| `vision` | Manda las imágenes a Gemini (como la web) | El más lento y el que más cuota gasta; el único que corrige errores del OCR, porque mira el documento |
 
-En `ai`, `DOC_CONVERTER_LLM` elige quién estructura:
-
-| Valor | Motor | Comportamiento medido |
-|---|---|---|
-| `auto` (default) | Gemini y, si falla, el modelo local | — |
-| `gemini` | Gemini | Formulario 23 s, avalúo 57 s, fiel y con tablas |
-| `local` | Ollama en la Mac (`OLLAMA_MODEL`, default `qwen2.5:7b-instruct`) | Formulario 33 s, bien. Avalúo: 4 min 21 s y **recortó más de la mitad** |
-
-El modelo local sirve para documentos cortos, sin cuota y sin que los datos
-salgan de la Mac. En documentos largos tiende a resumir en vez de reestructurar:
-por eso, si la salida encoge por debajo del 60 % de la entrada, se descarta y se
-conserva el texto crudo, y el registro lo declara como `ia local (parcial…)`.
-Perder formato es aceptable; perder contenido no.
+Si la IA devuelve menos texto del que había (señal de que resumió en vez de
+reestructurar), se descarta su salida y se conserva el texto crudo. Perder
+formato es aceptable; perder contenido no.
 
 El modo IA **no manda el documento a Gemini**: el OCR se hace igual en tu Mac y a
 Gemini le llega solo el texto extraído, para que reconstruya títulos y tablas.

@@ -37,10 +37,13 @@ cli/finder/install.sh   # registra el clic derecho > Servicios
 
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
 pymupdf4llm y OCR de Vision por página) y `backend/engines/text_structurer.py`
-reestructura ese texto (`--engine ai`) con Gemini o, vía
-`backend/engines/llm_structurer.py`, con un modelo local en Ollama
-(`DOC_CONVERTER_LLM=gemini|local|auto`). Solo los usa el CLI: sus dependencias
-están en `requirements-local.txt` y **no** se despliegan en Vercel.
+reestructura ese texto con Gemini en modo texto (`--engine ai`). Solo los usa el
+CLI: sus dependencias están en `requirements-local.txt` y **no** se despliegan en
+Vercel.
+
+Se evaluó y descartó un modelo local (Ollama) para estructurar: en un documento
+de 21 páginas recortó más de la mitad del contenido y tardó 4 min 21 s frente a
+57 s de Gemini. También se descartó docling: su OCR lee peor que Vision.
 
 ## Arquitectura (big picture)
 

@@ -54,7 +54,7 @@ StreamingResponse (descarga directa en browser)
 - **Stateless**: todo en memoria, sin disco ni estado en servidor
 - **OCR**: Gemini 1.5 Flash como principal (google-genai SDK)
 - **Sin dependencias frontend**: un solo archivo HTML, carga instantánea
-- **Path original**: la rama `src/` (parser SEMILLA CLI) existe pero no es el foco actual
+- **Path original**: la rama `src/` (parser SEMILLA CLI) se eliminó por pertenecer a otro proyecto
 
 ## Pendiente
 
