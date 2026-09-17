@@ -24,6 +24,18 @@ vercel dev
 vercel --prod
 ```
 
+## Uso local (Finder / CLI)
+
+`backend/cli.py` replica el enrutamiento de `/convert` sobre archivos del disco y
+escribe el resultado junto al original. `cli/finder/install.sh` instala el
+Servicio de Finder **Convertir con Doc Converter** (ver `cli/finder/README.md`).
+Usa `.venv/` + `.env` del proyecto.
+
+```bash
+.venv/bin/python -m backend.cli <archivo|carpeta> [--route auto|finance|markdown]
+cli/finder/install.sh   # registra el clic derecho > Servicios
+```
+
 ## Arquitectura (big picture)
 
 ```
