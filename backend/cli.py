@@ -3,14 +3,17 @@
 cli.py — Conversión local de archivos (misma lógica que POST /convert).
 
 Uso:
-    python -m backend.cli <archivo|carpeta> [...] [--route auto|finance|markdown] [--engine local|ai]
+    python -m backend.cli <archivo|carpeta> [...] [--route auto|finance|markdown] [--engine local|ai|vision]
 
 --engine local (default): todo se convierte en la Mac (Office con markitdown,
 PDF con capa de texto con pymupdf4llm, páginas escaneadas e imágenes con el OCR
 nativo de Vision). Gemini solo interviene en extractos bancarios, que necesitan
 un modelo para extraer las transacciones. --engine ai: todo PDF/imagen pasa por
 Gemini, pero solo el TEXTO que ya extrajo la Mac, para que lo reestructure
-(una solicitud por documento en vez de una por cada 10-20 páginas).
+(una solicitud por documento en vez de una por cada 10-20 páginas). --engine
+vision: manda las imágenes del documento a Gemini, como la web. Es el más lento
+y el que más cuota gasta, pero el único que puede corregir lo que el OCR leyó
+mal, porque mira el documento en vez de su transcripción.
 
 El resultado (.csv o .md) se escribe junto al archivo original. Si ya existe
 un archivo con ese nombre, se agrega un sufijo numérico en vez de sobrescribir.
@@ -139,7 +142,8 @@ def convert_path_ai(path: Path, route: str) -> tuple:
     if not text.strip():
         return None  # sin texto extraíble: que lo intente la visión de Gemini
     try:
-        return (*_local_markdown(path.name, text_structurer.structure_markdown(text)), 'local+ia')
+        markdown, metodo = text_structurer.structure_markdown(text)
+        return (*_local_markdown(path.name, markdown), f'local + {metodo}')
     except Exception as e:
         return (*_local_markdown(path.name, text), f'local, IA no disponible: {e}')
 
@@ -169,7 +173,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog='doc-convert', description='Convierte documentos a CSV/Markdown.')
     parser.add_argument('paths', nargs='+', help='Archivos o carpetas a convertir')
     parser.add_argument('--route', choices=('auto', 'finance', 'markdown'), default='auto')
-    parser.add_argument('--engine', choices=('local', 'ai'), default='local')
+    parser.add_argument('--engine', choices=('local', 'ai', 'vision'), default='local')
     args = parser.parse_args(argv)
 
     jobs = expand_inputs(args.paths)

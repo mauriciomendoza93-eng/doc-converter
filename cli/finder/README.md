@@ -7,6 +7,28 @@
 | **Convertir con Doc Converter** | Local (`--engine local`) | Siempre. Segundos, sin cuota. |
 | **Convertir con Doc Converter (IA)** | Local + Gemini (`--engine ai`) | Cuando el local no respetó bien la estructura: formularios densos, tablas complejas. |
 
+## Motores disponibles (`--engine`)
+
+| Motor | Qué hace | Medido |
+|---|---|---|
+| `local` (default) | OCR y extracción en la Mac, sin modelo | 6 archivos en 7 s; no estructura formularios |
+| `ai` | Local + un modelo reestructura el texto | Formulario 23 s · avalúo de 21 páginas 57 s, con tablas |
+| `vision` | Manda las imágenes a Gemini (como la web) | El más lento y el que más cuota gasta; el único que corrige errores del OCR |
+
+En `ai`, `DOC_CONVERTER_LLM` elige quién estructura:
+
+| Valor | Motor | Comportamiento medido |
+|---|---|---|
+| `auto` (default) | Gemini y, si falla, el modelo local | — |
+| `gemini` | Gemini | Formulario 23 s, avalúo 57 s, fiel y con tablas |
+| `local` | Ollama en la Mac (`OLLAMA_MODEL`, default `qwen2.5:7b-instruct`) | Formulario 33 s, bien. Avalúo: 4 min 21 s y **recortó más de la mitad** |
+
+El modelo local sirve para documentos cortos, sin cuota y sin que los datos
+salgan de la Mac. En documentos largos tiende a resumir en vez de reestructurar:
+por eso, si la salida encoge por debajo del 60 % de la entrada, se descarta y se
+conserva el texto crudo, y el registro lo declara como `ia local (parcial…)`.
+Perder formato es aceptable; perder contenido no.
+
 El modo IA **no manda el documento a Gemini**: el OCR se hace igual en tu Mac y a
 Gemini le llega solo el texto extraído, para que reconstruya títulos y tablas.
 Eso es una solicitud por documento sin importar cuántas páginas tenga (mandar las
