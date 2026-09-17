@@ -21,7 +21,12 @@ import argparse
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
+
+# markitdown importa conversores de audio que avisan si falta ffmpeg; no
+# convertimos audio, así que el aviso solo ensucia el registro.
+warnings.filterwarnings('ignore', module='pydub')
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
@@ -35,6 +40,7 @@ from backend.engines import local_converter
 from backend.engines.document_converter import convert_to_markdown, convert_document_smart
 from backend.engines.finance_converter import convert_to_finance_csv
 
+ALREADY_TEXT_EXTS = {'.md', '.markdown', '.txt'}
 FINANCE_EXTS = {'.xls', '.xlsx', '.csv'}
 DOCUMENT_EXTS = {'.pdf', '.png', '.jpg', '.jpeg'}
 SUPPORTED_EXTS = FINANCE_EXTS | DOCUMENT_EXTS | local_converter.OFFICE_EXTS | local_converter.IMAGE_EXTS
@@ -112,6 +118,8 @@ def expand_inputs(paths: list) -> list:
 
 def convert_path(path: Path, out_dir: Path, route: str, engine: str) -> tuple:
     ext = path.suffix.lower()
+    if ext in ALREADY_TEXT_EXTS:
+        raise RuntimeError(f'ya es texto ({ext}); selecciona el documento original')
     if ext not in SUPPORTED_EXTS:
         raise RuntimeError(f'tipo de archivo no soportado ({path.suffix or "sin extensión"})')
     result = None
