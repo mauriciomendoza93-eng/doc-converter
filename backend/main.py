@@ -16,7 +16,7 @@ import io
 import sys
 import traceback
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from mangum import Mangum
 
@@ -34,6 +34,25 @@ handler = Mangum(app)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, 'frontend')
+
+
+@app.get('/{icon_name:str}')
+async def serve_static_icon(icon_name: str):
+    if icon_name in {'apple-touch-icon.png', 'favicon.ico', 'favicon.svg', 'favicon-32x32.png', 'icon-192.png', 'icon-512.png', 'manifest.json'}:
+        file_path = os.path.join(FRONTEND_DIR, icon_name)
+        if os.path.isfile(file_path):
+            media_type = 'application/octet-stream'
+            if icon_name.endswith('.png'):
+                media_type = 'image/png'
+            elif icon_name.endswith('.svg'):
+                media_type = 'image/svg+xml'
+            elif icon_name.endswith('.ico'):
+                media_type = 'image/x-icon'
+            elif icon_name.endswith('.json'):
+                media_type = 'application/manifest+json'
+            with open(file_path, 'rb') as f:
+                return Response(content=f.read(), media_type=media_type)
+    raise HTTPException(status_code=404, detail='Not found')
 
 
 @app.get('/', response_class=HTMLResponse)
