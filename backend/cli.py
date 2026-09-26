@@ -60,7 +60,8 @@ def convert_path_local_first(path: Path, route: str) -> tuple:
     if ext in local_converter.OFFICE_EXTS:
         return (*_local_markdown(path.name, local_converter.convert_office(str(path))), 'local')
     if ext in local_converter.IMAGE_EXTS and route != 'finance':
-        return (*_local_markdown(path.name, local_converter.convert_image(str(path))), 'local-ocr')
+        text, note = local_converter.convert_image(str(path))
+        return (*_local_markdown(path.name, text), f'local-ocr, {note}' if note else 'local-ocr')
     if ext != '.pdf' or route == 'finance':
         return None
 
@@ -126,7 +127,7 @@ def extract_text_locally(path: Path) -> str:
     if ext in local_converter.OFFICE_EXTS:
         return local_converter.convert_office(str(path))
     if ext in local_converter.IMAGE_EXTS:
-        return local_converter.convert_image(str(path))
+        return local_converter.convert_image(str(path))[0]
     return local_converter.convert_pdf(path.read_bytes())[0]
 
 

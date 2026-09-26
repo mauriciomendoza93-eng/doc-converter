@@ -37,13 +37,18 @@ cli/finder/install.sh   # registra el clic derecho > Servicios
 
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
 pymupdf4llm y OCR de Vision por página) y `backend/engines/text_structurer.py`
-reestructura ese texto con Gemini en modo texto (`--engine ai`). Solo los usa el
+reestructura ese texto con Gemini en modo texto (`--engine ai`). Las fotos se recortan
+y enderezan al documento con Vision antes del OCR (`crop_to_document`); si la
+detección es dudosa, solo lo sugiere en la salida. Solo los usa el
 CLI: sus dependencias están en `requirements-local.txt` y **no** se despliegan en
 Vercel.
 
 Se evaluó y descartó un modelo local (Ollama) para estructurar: en un documento
 de 21 páginas recortó más de la mitad del contenido y tardó 4 min 21 s frente a
-57 s de Gemini. También se descartó docling: su OCR lee peor que Vision.
+57 s de Gemini. También se descartó docling: su OCR lee peor que Vision. Y MinerU 4 (2026-09):
+estructura mejor tablas escaneadas, pero 40 s/página, ~2 GB, servidor propio,
+nube china por defecto y aún con errores de dígitos; para escaneos puntuales
+basta `--engine vision` (Gemini).
 
 ## Arquitectura (big picture)
 

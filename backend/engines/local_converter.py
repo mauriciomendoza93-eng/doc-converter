@@ -39,6 +39,10 @@ _MAX_OCR_WORKERS = 8
 # diapositivas a dos columnas se mezcla el texto de columnas distintas.
 _LINE_TOLERANCE = 0.012
 _COLUMN_GAP = 0.04
+# Recorte de fotos: si el documento ocupa más de esta fracción no se toca;
+# por debajo de esta confianza solo se sugiere el recorte.
+_DOC_FULL_FRAME = 0.9
+_DOC_MIN_CONFIDENCE = 0.8
 
 _BANK_KEYWORDS = (
     'extracto bancario', 'extracto de cuenta', 'estado de cuenta',
@@ -103,10 +107,59 @@ def _page_image(page):
     return Image.open(io.BytesIO(page.get_pixmap(dpi=_OCR_DPI).tobytes('png')))
 
 
-def convert_image(path: str) -> str:
+def detect_document(image):
+    """Bordes del documento dentro de una foto, con la segmentación de
+    documentos de Vision. Retorna (esquinas en píxeles [sup-izq, inf-izq,
+    inf-der, sup-der], confianza, fracción del área) o None si no ve uno."""
+    import Vision
+    from Foundation import NSData
+    buf = io.BytesIO()
+    image.save(buf, format='PNG')
+    data = buf.getvalue()
+    handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(
+        NSData.dataWithBytes_length_(data, len(data)), None)
+    request = Vision.VNDetectDocumentSegmentationRequest.alloc().init()
+    handler.performRequests_error_([request], None)
+    results = request.results() or []
+    if not results:
+        return None
+    obs = results[0]
+    w, h = image.size
+    # Vision: coordenadas 0-1 con origen abajo-izquierda.
+    to_px = lambda p: (p.x * w, (1 - p.y) * h)
+    quad = [to_px(obs.topLeft()), to_px(obs.bottomLeft()), to_px(obs.bottomRight()), to_px(obs.topRight())]
+    xs, ys = [p[0] for p in quad], [p[1] for p in quad]
+    area = (max(xs) - min(xs)) * (max(ys) - min(ys)) / (w * h)
+    return quad, float(obs.confidence()), area
+
+
+def crop_to_document(image) -> tuple:
+    """Recorta y endereza el documento si la foto abarca más que él.
+    Retorna (imagen, nota); la nota es '' si no hubo nada que decir."""
     from PIL import Image
+    found = detect_document(image)
+    if not found:
+        return image, ''
+    quad, confidence, area = found
+    if area > _DOC_FULL_FRAME:
+        return image, ''  # el documento ya ocupa la foto
+    if confidence < _DOC_MIN_CONFIDENCE:
+        return image, (f'posible documento en el {area:.0%} de la foto (confianza {confidence:.0%}); '
+                       'no se recortó, conviene recortarla a mano')
+    (tl, bl, br, tr) = quad
+    dist = lambda a, b: ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+    size = (int(max(dist(tl, tr), dist(bl, br))), int(max(dist(tl, bl), dist(tr, br))))
+    flat = image.transform(size, Image.QUAD, data=[c for p in quad for c in p], resample=Image.BICUBIC)
+    return flat, f'documento recortado al {area:.0%} de la foto y enderezado'
+
+
+def convert_image(path: str) -> tuple:
+    """Retorna (texto, nota de recorte)."""
+    from PIL import Image, ImageOps
     with Image.open(path) as img:
-        return _ocr_image(img.convert('RGB'))
+        img = ImageOps.exif_transpose(img).convert('RGB')
+        img, note = crop_to_document(img)
+        return _ocr_image(img), note
 
 
 # --- PDF --------------------------------------------------------------------
