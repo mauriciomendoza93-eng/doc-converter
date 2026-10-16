@@ -58,7 +58,8 @@ basta `--engine vision` (Gemini).
 `backend/engines/pdf_tools.py`: pikepdf, PyMuPDF, LibreOffice, ocrmypdf). Originales
 inmutables, salidas versionadas, eventos de solo-anexado en Postgres (`doc_converter`),
 caducidad y respaldo restic diario. En Vercel el import de pikepdf falla y solo queda `/convert`.
-Tests: `.venv/bin/python -m pytest tests/`.
+Tests: `.venv/bin/python -m pytest tests/`. La web (Vercel y HP) convierte un archivo por
+subida; el lote por carpetas (primer nivel) es solo del CLI/Finder.
 
 ## Arquitectura (big picture)
 

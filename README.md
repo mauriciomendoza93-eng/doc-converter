@@ -17,6 +17,22 @@ convierte archivos de la Mac con clic derecho.
 Las extensiones de Office e imágenes sueltas solo están disponibles en el uso
 local; la web acepta `.xls`, `.xlsx`, `.csv`, `.pdf`, `.png` y `.jpg`.
 
+### Qué ofrece cada canal
+
+| | Web Vercel | Web HP (tailnet) | Finder / CLI (Mac) |
+|---|---|---|---|
+| Conversión a CSV / Markdown | sí (Gemini para PDF/imagen) | sí, mismo motor | sí, motor local o IA |
+| Formatos de entrada | xls, xlsx, csv, pdf, png, jpg | igual que Vercel | + docx, pptx, doc, rtf, odt, html, heic, tiff |
+| Tamaño máximo | `MAX_UPLOAD_MB` (Vercel corta en ~4.5 MB) | 100 MB | sin límite |
+| Carpetas en lote | no (un archivo por subida) | no | sí: primer nivel, salida en `<carpeta>_convertida` |
+| Herramientas PDF (`/tools`) | no | sí | no |
+
+Desde oct 2026 la web valida el archivo antes de convertirlo (tamaño, extensión
+y firma real del contenido), limpia el nombre de descarga y devuelve errores
+claros: 4xx si el archivo no sirve y 503 si Gemini no está disponible. Los
+motores de conversión no cambiaron. El CLI/Finder tampoco cambió: ya convertía
+carpetas y sigue aislando el error de cada archivo para no cortar el lote.
+
 ## Uso web
 
 <https://doc-conventer.vercel.app> — subir el archivo y descargar el resultado.
@@ -26,9 +42,8 @@ local; la web acepta `.xls`, `.xlsx`, `.csv`, `.pdf`, `.png` y `.jpg`.
 Convierte con clic derecho, sin subir nada a internet salvo que uses el modo IA.
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip install -r requirements-local.txt
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-server.txt -r requirements-local.txt
 cli/finder/install.sh
 ```
 
@@ -91,7 +106,6 @@ vercel --prod                       # desplegar (solo /convert)
 DATA_DIR=./data .venv/bin/python backend/main.py   # con herramientas PDF
 ```
 
-Instalar: `python3.12 -m venv .venv && .venv/bin/pip install -r requirements-server.txt -r requirements-local.txt`.
 Tests: `.venv/bin/python -m pytest tests/`.
 
 Requiere `GEMINI_API_KEY` en `.env` (OCR de la web y modo IA local).
