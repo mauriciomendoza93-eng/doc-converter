@@ -1,0 +1,10 @@
+.git
+.venv
+.env*
+data
+tests
+cli
+docs
+src
+.vercel
+**/__pycache__

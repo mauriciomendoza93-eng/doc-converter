@@ -50,6 +50,16 @@ estructura mejor tablas escaneadas, pero 40 s/página, ~2 GB, servidor propio,
 nube china por defecto y aún con errores de dígitos; para escaneos puntuales
 basta `--engine vision` (Gemini).
 
+## Servidor propio (HP)
+
+`deploy/hp/deploy.sh` despliega la misma app en Docker en el HP
+(https://hp-server.taila36576.ts.net:8300, solo tailnet) con `DATA_DIR`, lo que activa
+`/tools` y `/api/*` (`backend/tools_api.py`, `backend/store.py`,
+`backend/engines/pdf_tools.py`: pikepdf, PyMuPDF, LibreOffice, ocrmypdf). Originales
+inmutables, salidas versionadas, eventos de solo-anexado en Postgres (`doc_converter`),
+caducidad y respaldo restic diario. En Vercel el import de pikepdf falla y solo queda `/convert`.
+Tests: `.venv/bin/python -m pytest tests/`.
+
 ## Arquitectura (big picture)
 
 ```

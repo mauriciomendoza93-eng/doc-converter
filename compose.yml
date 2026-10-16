@@ -1,0 +1,15 @@
+# Servidor HP. Red del host para llegar a postgres-apps en 127.0.0.1:5432;
+# uvicorn escucha solo en 127.0.0.1:8300 y tailscale serve lo publica en la tailnet.
+services:
+  doc-converter:
+    build: .
+    container_name: doc-converter
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    command: ["uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8300", "--workers", "2"]
+    volumes:
+      - ${DOC_CONVERTER_DATA:-./data}:/data
+    mem_limit: 3g

@@ -1,0 +1,7 @@
+[Unit]
+Description=Respaldo restic de doc-converter
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/doc-converter-backup
