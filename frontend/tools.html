@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Herramientas PDF</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --void-canvas: #0a0a0a; --graphite: #161616; --bone: #ededed; --ash: #c2c2c2;
+    --slate: #686868; --hairline: rgba(255,255,255,.12); --ember: #e66e3c; --ok: #6fcf97; --err: #ff7a6b;
+    --font-primary: 'DM Sans', system-ui, sans-serif; --font-secondary: 'Geist', system-ui, sans-serif;
+  }
+  body { font-family: var(--font-primary); background: var(--void-canvas); color: var(--bone);
+         min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; display: grid; gap: 20px; }
+  h1 { font-family: var(--font-secondary); font-weight: 500; font-size: 28px; letter-spacing: -.02em; }
+  h2 { font-family: var(--font-secondary); font-weight: 500; font-size: 16px; margin-bottom: 12px; }
+  a { color: var(--ash); }
+  .warn { border: 1px solid var(--ember); border-radius: 4px; padding: 12px 14px; font-size: 14px; line-height: 1.5; }
+  .warn strong { color: var(--ember); }
+  .card { background: var(--graphite); border-radius: 4px; padding: 20px; box-shadow: inset 0 0 0 1px var(--hairline); }
+  .muted { color: var(--slate); font-size: 13px; }
+  .ops { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  button, .btn { font: inherit; font-size: 14px; border: 1px solid var(--hairline); background: transparent;
+                 color: var(--bone); padding: 8px 16px; border-radius: 1000px; cursor: pointer; text-decoration: none; }
+  button[aria-pressed="true"], button.primary { background: var(--bone); color: var(--void-canvas); }
+  button:disabled { opacity: .4; cursor: default; }
+  label { display: grid; gap: 6px; font-size: 13px; color: var(--ash); margin-bottom: 12px; }
+  input[type=text], input[type=number], textarea, select {
+    font: inherit; color: var(--bone); background: var(--void-canvas); border: 1px solid var(--hairline);
+    border-radius: 4px; padding: 8px 10px; width: 100%; }
+  input[type=file] { color: var(--ash); max-width: 100%; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .state { font-size: 14px; padding: 10px 0; }
+  .state.ok { color: var(--ok); } .state.err { color: var(--err); }
+  ul.warnings { margin: 8px 0 0 18px; font-size: 13px; color: var(--ember); }
+  #preview img { max-width: 100%; border-radius: 4px; margin-top: 12px; background: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  td.actions { white-space: nowrap; text-align: right; }
+  .empty { color: var(--slate); font-size: 14px; padding: 12px 0; }
+  .hidden { display: none; }
+  @media (max-width: 600px) { td.hash, th.hash { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="row" style="justify-content:space-between">
+    <h1>Herramientas PDF</h1>
+    <a href="/">← Conversor</a>
+  </div>
+
+  <div class="warn" role="note">
+    <strong>Uso de bajo riesgo.</strong> Herramienta personal sin garantías: revisa cada resultado antes de usarlo.
+    No sirve para firmas electrónicas cualificadas, verificación de identidad ni documentos regulados.
+    Los archivos se quedan en este servidor; los originales no se modifican nunca.
+  </div>
+
+  <div id="unavailable" class="card hidden">
+    <h2>No disponible aquí</h2>
+    <p class="muted">Estas herramientas necesitan el almacén local del servidor propio. En la versión pública solo funciona el conversor.</p>
+  </div>
+
+  <section id="tool" class="card hidden">
+    <div class="ops" id="ops"></div>
+    <label><span id="file-label">Archivo PDF</span><input type="file" id="files" accept=".pdf"></label>
+    <div id="params"></div>
+    <div id="inspect"></div>
+    <div id="preview"></div>
+    <div class="row">
+      <button class="primary" id="run" disabled>Procesar</button>
+      <span class="muted" id="caps"></span>
+    </div>
+    <div class="state" id="state" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="card hidden" id="files-card">
+    <div class="row" style="justify-content:space-between; margin-bottom: 8px">
+      <h2 style="margin:0">Resultados</h2>
+      <div class="row"><a class="btn" href="/api/export">Exportar todo</a><button id="refresh">Actualizar</button></div>
+    </div>
+    <div id="files-list"></div>
+  </section>
+</main>
+
+<script>
+const OPS = {
+  merge:     { label: 'Unir', multi: true },
+  split:     { label: 'Dividir', params: [['pages', 'Grupos (separados por ;)', '1-2;3-5']] },
+  reorder:   { label: 'Reordenar', params: [['pages', 'Nuevo orden (las omitidas se quitan)', '3,1,2']] },
+  rotate:    { label: 'Rotar', params: [['degrees', 'Grados', '90', 'select'], ['pages', 'Páginas (vacío = todas)', '1,3']] },
+  compress:  { label: 'Comprimir' },
+  watermark: { label: 'Marca de agua', params: [['text', 'Texto', 'CONFIDENCIAL']] },
+  redact:    { label: 'Tachar', params: [['text', 'Textos a eliminar (uno por línea)', '', 'textarea']] },
+  ocr:       { label: 'OCR' },
+  office:    { label: 'Office → PDF', accept: '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf' },
+};
+let current = 'merge';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function setState(text, kind = '') { $('state').textContent = text; $('state').className = 'state ' + kind; }
+
+async function api(url, opts) {
+  let res;
+  try { res = await fetch(url, opts); }
+  catch { throw new Error('No hay conexión con el servidor. Revisa la red e inténtalo de nuevo.'); }
+  if (!res.ok) {
+    let msg = `Error ${res.status}`;
+    try { msg = (await res.json()).detail || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res;
+}
+
+function renderOps() {
+  $('ops').innerHTML = Object.entries(OPS).map(([k, o]) =>
+    `<button data-op="${k}" aria-pressed="${k === current}">${o.label}</button>`).join('');
+  const op = OPS[current];
+  $('files').multiple = !!op.multi;
+  $('files').accept = op.accept || '.pdf';
+  $('file-label').textContent = op.multi ? 'Archivos PDF (en el orden en que se unirán)' : (op.accept ? 'Documento de Office' : 'Archivo PDF');
+  $('params').innerHTML = (op.params || []).map(([name, label, ph, kind]) => {
+    if (kind === 'select') return `<label>${label}<select name="${name}"><option>90</option><option>180</option><option>270</option></select></label>`;
+    if (kind === 'textarea') return `<label>${label}<textarea name="${name}" rows="3"></textarea></label>`;
+    return `<label>${label}<input type="text" name="${name}" placeholder="${ph}"></label>`;
+  }).join('');
+  $('files').value = ''; $('inspect').innerHTML = ''; $('preview').innerHTML = '';
+  $('run').disabled = true; setState('');
+}
+
+$('ops').addEventListener('click', e => {
+  const b = e.target.closest('button[data-op]'); if (!b) return;
+  current = b.dataset.op; renderOps();
+});
+
+$('files').addEventListener('change', async () => {
+  const files = [...$('files').files];
+  $('run').disabled = files.length === 0 || (OPS[current].multi && files.length < 2);
+  $('inspect').innerHTML = ''; $('preview').innerHTML = ''; setState('');
+  if (OPS[current].multi && files.length === 1) setState('Elige al menos dos PDF para unir.');
+  const first = files[0];
+  if (!first || !first.name.toLowerCase().endsWith('.pdf')) return;
+  const fd = new FormData(); fd.append('file', first);
+  try {
+    const info = await (await api('/api/inspect', { method: 'POST', body: fd })).json();
+    const w = info.warnings.length ? `<ul class="warnings">${info.warnings.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+    $('inspect').innerHTML = `<p class="muted">${info.pages} páginas</p>${w}`;
+    const pv = new FormData(); pv.append('file', first); pv.append('page', '1');
+    const blob = await (await api('/api/preview', { method: 'POST', body: pv })).blob();
+    $('preview').innerHTML = `<img alt="Vista previa de la primera página" src="${URL.createObjectURL(blob)}">`;
+  } catch (err) { $('inspect').innerHTML = `<p class="state err">${esc(err.message)}</p>`; }
+});
+
+$('run').addEventListener('click', async () => {
+  const fd = new FormData();
+  [...$('files').files].forEach(f => fd.append('files', f));
+  $('params').querySelectorAll('[name]').forEach(el => fd.append(el.name, el.value));
+  $('run').disabled = true; setState('Procesando…');
+  try {
+    const r = await (await api(`/api/pdf/${current}`, { method: 'POST', body: fd })).json();
+    let msg = `Listo: ${r.outputs.map(o => o.filename).join(', ')}`;
+    if (r.before) msg += ` (${(r.before/1024).toFixed(0)} KB → ${(r.after/1024).toFixed(0)} KB)`;
+    if (r.hits !== undefined) msg += ` — ${r.hits} coincidencias eliminadas`;
+    setState(msg, 'ok');
+    r.outputs.forEach(o => { const a = document.createElement('a'); a.href = `/api/files/${o.id}`; a.click(); });
+    loadFiles();
+  } catch (err) { setState(err.message + ' Puedes corregirlo y volver a intentar.', 'err'); }
+  finally { $('run').disabled = false; }
+});
+
+async function loadFiles() {
+  $('files-list').innerHTML = '<p class="empty">Cargando…</p>';
+  try {
+    const list = await (await api('/api/files')).json();
+    if (!list.length) { $('files-list').innerHTML = '<p class="empty">Aún no hay resultados. Procesa un archivo para empezar.</p>'; return; }
+    $('files-list').innerHTML = `<table><thead><tr><th>Archivo</th><th>Creado</th><th>Caduca</th><th class="hash">SHA-256</th><th></th></tr></thead><tbody>${
+      list.map(f => `<tr><td>${esc(f.filename)}</td><td>${new Date(f.created).toLocaleString()}</td>
+        <td>${new Date(f.expires).toLocaleDateString()}</td><td class="hash muted">${f.sha256.slice(0, 12)}…</td>
+        <td class="actions"><a class="btn" href="/api/files/${f.id}">Descargar</a>
+        <button data-del="${f.id}">Borrar</button></td></tr>`).join('')}</tbody></table>`;
+  } catch (err) { $('files-list').innerHTML = `<p class="state err">${esc(err.message)}</p>`; }
+}
+
+$('files-list').addEventListener('click', async e => {
+  const id = e.target.dataset.del; if (!id || !confirm('¿Borrar este resultado? El original se conserva.')) return;
+  try { await api(`/api/files/${id}`, { method: 'DELETE' }); loadFiles(); }
+  catch (err) { alert(err.message); }
+});
+$('refresh').addEventListener('click', loadFiles);
+
+(async () => {
+  try {
+    const s = await (await api('/api/status')).json();
+    if (!s.storage) throw new Error();
+    $('caps').textContent = `Caducidad: ${s.expiry_days} días` + (s.office ? '' : ' · Office→PDF no disponible') + (s.ocr ? '' : ' · OCR no disponible');
+    ['tool', 'files-card'].forEach(id => $(id).classList.remove('hidden'));
+    renderOps(); loadFiles();
+  } catch { $('unavailable').classList.remove('hidden'); }
+})();
+</script>
+</body>
+</html>

@@ -417,7 +417,10 @@
     <p>Desarrollado por Mauricio Mendoza</p>
   </footer>
 
+  <a id="tools-link" href="/tools" hidden style="position:fixed;top:16px;right:16px;color:var(--ash);font-size:14px;border:1px solid var(--hairline);border-radius:1000px;padding:6px 14px;text-decoration:none">Herramientas PDF</a>
   <script>
+    fetch('/api/status').then(r => r.ok && r.json()).then(s => { if (s && s.storage) document.getElementById('tools-link').hidden = false; }).catch(() => {});
+
     /* ── DOM refs ── */
     const dropzone    = document.getElementById('dropzone');
     const fileInput   = document.getElementById('file-input');
