@@ -26,8 +26,43 @@ CATEGORIAS_VALIDAS = [
     'Transferencia a Proveedores', 'Pagos Tarjetas de Crédito', 'Otros',
 ]
 
+# La clasificación por IA es opcional: si Gemini no responde pronto, se sigue sin ella.
+_AI_TIMEOUT_MS = 20_000
+
 # Categorías "sin match" que quedan como candidatas para clasificación por IA.
 _CATEGORIAS_FALLBACK = {'Otros', 'Otros ingresos'}
+
+
+def _to_number(value) -> float:
+    """Convierte un monto de planilla/extracto a float. Acepta '1,000.00',
+    '1.000,00', '(250.50)', '250.50-', 'Bs -1 000,5'. Retorna NaN si no es un número."""
+    nan = float('nan')
+    if value is None:
+        return nan
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    s = str(value).strip()
+    if not s:
+        return nan
+    negative = '-' in s or (s.startswith('(') and s.endswith(')'))
+    core = re.sub(r'[^\d,.]', '', s)
+    if not re.search(r'\d', core):
+        return nan
+    if ',' in core and '.' in core:
+        decimal = ',' if core.rfind(',') > core.rfind('.') else '.'
+        thousands = '.' if decimal == ',' else ','
+        core = core.replace(thousands, '').replace(decimal, '.')
+    elif ',' in core:
+        core = core.replace(',', '') if re.fullmatch(r'\d{1,3}(,\d{3})+', core) else core.replace(',', '.')
+    elif core.count('.') > 1:
+        if not re.fullmatch(r'\d{1,3}(\.\d{3})+', core):
+            return nan
+        core = core.replace('.', '')
+    try:
+        number = float(core)
+    except ValueError:
+        return nan
+    return -abs(number) if negative else number
 
 
 def _parse_date(value) -> str:
@@ -78,6 +113,19 @@ def _detect_flujo_financiero(amount: float) -> str:
     return 'Entrada' if amount > 0 else 'Salida'
 
 
+def _kw(text: str, keywords: list) -> bool:
+    """¿Aparece alguna palabra clave? Las de hasta 3 letras ('it', 'iva', 'atm',
+    'qr'...) exigen límites de palabra: como subcadena, 'it' marcaba como
+    Impuestos cualquier concepto con 'hospital' o 'crédito'."""
+    for k in keywords:
+        if len(k) <= 3:
+            if re.search(rf'(?<!\w){re.escape(k)}(?!\w)', text):
+                return True
+        elif k in text:
+            return True
+    return False
+
+
 def _detect_categoria(desc: str, monto: float, tipo_movimiento: str) -> str:
     """
     Motor de reglas de categorización automática por keyword matching.
@@ -100,45 +148,45 @@ def _detect_categoria(desc: str, monto: float, tipo_movimiento: str) -> str:
         es_alquiler = 'alquiler' in d or 'alkiler' in d or any(inq in d for inq in inquilinos_conocidos)
         if es_alquiler:
             categoria = 'Alquiler'
-        elif any(k in d for k in ['interesganado', 'interes ganado', 'rendimiento']):
+        elif _kw(d, ['interesganado', 'interes ganado', 'rendimiento']):
             categoria = 'Rendimientos'
 
     if es_egreso:
-        if any(k in d for k in ['rciva', 'impuestos', 'retencion', 'retención', 'it', 'iva', 'determinacion']):
+        if _kw(d, ['rciva', 'impuestos', 'retencion', 'retención', 'it', 'iva', 'determinacion']):
             categoria = 'Impuestos'
-        elif 'atm' in d or 'retiro' in d or tipo_movimiento == 'Retiro':
+        elif _kw(d, ['atm']) or 'retiro' in d or tipo_movimiento == 'Retiro':
             categoria = 'Retiros ATM'
-        elif any(k in d for k in ['apple.com', 'spotify', 'netflix', 'amazon prime', 'hbo', 'disney', 'youtube premium', 'icloud', 'apple storage']):
+        elif _kw(d, ['apple.com', 'spotify', 'netflix', 'amazon prime', 'hbo', 'disney', 'youtube premium', 'icloud', 'apple storage']):
             categoria = 'Suscripciones'
-        elif any(k in d for k in ['pago de servicios', 'cotes', 'entel', 'cessa', 'delapaz', 'telefonica', 'tigo', 'viva', 'electro', 'agua potable', 'teléfono', 'luz', 'electricidad domicilio', 'gas domiciliario']):
+        elif _kw(d, ['pago de servicios', 'cotes', 'entel', 'cessa', 'delapaz', 'telefonica', 'tigo', 'viva', 'electro', 'agua potable', 'teléfono', 'luz', 'electricidad domicilio', 'gas domiciliario']):
             categoria = 'Servicios Básicos'
-        elif any(k in d for k in ['farmacorp', 'farmacia', 'hospital', 'clinica', 'medico', 'medicina', 'ecografia', 'ecograf', 'dental', 'oftalmolog', 'laboratorio', 'analisis', 'consultorio']):
+        elif _kw(d, ['farmacorp', 'farmacia', 'hospital', 'clinica', 'medico', 'medicina', 'ecografia', 'ecograf', 'dental', 'oftalmolog', 'laboratorio', 'analisis', 'consultorio']):
             categoria = 'Salud'
-        elif any(k in d for k in ['porton', 'soporte magnetico', 'soporte magnético', 'honorario', 'honorarios', 'reparacion', 'reparación', 'mantenimiento', 'plomeria', 'plomería', 'albañil']):
+        elif _kw(d, ['porton', 'soporte magnetico', 'soporte magnético', 'honorario', 'honorarios', 'reparacion', 'reparación', 'mantenimiento', 'plomeria', 'plomería', 'albañil']):
             categoria = 'Mantenimiento/Otros'
-        elif any(k in d for k in ['mancuernas', 'gym', 'smartfit', 'fitness', 'deporte', 'crossfit', 'yoga', 'pilates']):
+        elif _kw(d, ['mancuernas', 'gym', 'smartfit', 'fitness', 'deporte', 'crossfit', 'yoga', 'pilates']):
             categoria = 'Deporte'
-        elif any(k in d for k in ['hamburguesa', 'restaurante', 'cafe', 'café', 'almuerzo', 'comida', 'comedor', 'pizzeria', 'pizzería', 'sushi', 'comida rapida', 'delivery', 'rappi', 'pedidosya']):
+        elif _kw(d, ['hamburguesa', 'restaurante', 'cafe', 'café', 'almuerzo', 'comida', 'comedor', 'pizzeria', 'pizzería', 'sushi', 'comida rapida', 'delivery', 'rappi', 'pedidosya']):
             categoria = 'Alimentación'
-        elif any(k in d for k in ['combustible', 'gasolina', 'estacion', 'estación', 'yacuiba', 'yprensa', 'bp', 'shell', 'petrobras']):
+        elif _kw(d, ['combustible', 'gasolina', 'estacion', 'estación', 'yacuiba', 'yprensa', 'bp', 'shell', 'petrobras']):
             categoria = 'Combustible'
-        elif any(k in d for k in ['supermercado', 'ketal', 'hipermaxi', 'walmart', 'todo en uno', 'hiper']):
+        elif _kw(d, ['supermercado', 'ketal', 'hipermaxi', 'walmart', 'todo en uno', 'hiper']):
             categoria = 'Supermercado'
-        elif any(k in d for k in ['cine', 'teatro', 'concierto', 'evento', 'streaming']):
+        elif _kw(d, ['cine', 'teatro', 'concierto', 'evento', 'streaming']):
             categoria = 'Entretenimiento'
-        elif any(k in d for k in ['prestamo', 'préstamo', 'credito', 'crédito', 'cuota', 'amortizacion', 'amortización', 'financiamiento']):
+        elif _kw(d, ['prestamo', 'préstamo', 'credito', 'crédito', 'cuota', 'amortizacion', 'amortización', 'financiamiento']):
             categoria = 'Préstamos'
         elif 'plazo fijo' in d or 'depósito a plazo' in d or 'deposito a plazo' in d:
             categoria = 'Depósito a Plazo Fijo'
-        elif 'interbancaria' in d or 'ach' in d or 'transferencia bm' in d:
+        elif 'interbancaria' in d or _kw(d, ['ach']) or 'transferencia bm' in d:
             categoria = 'Transferencias Interbancarias'
         elif 'yape' in d:
             categoria = 'Pagos vía Yape'
-        elif 'qr' in d and 'retiro' not in d and 'atm' not in d:
+        elif _kw(d, ['qr']) and 'retiro' not in d and 'atm' not in d:
             categoria = 'Transferencia QR'
         elif 'abono en cuenta' in d or 'proveedor' in d or 'pago qr' in d:
             categoria = 'Transferencia a Proveedores'
-        elif any(k in d for k in ['tarjeta', 'dismac', 'visa', 'mastercard']):
+        elif _kw(d, ['tarjeta', 'dismac', 'visa', 'mastercard']):
             categoria = 'Pagos Tarjetas de Crédito'
 
     return categoria
@@ -158,7 +206,9 @@ def _ai_categorize_fallback(conceptos: list) -> dict:
     try:
         from google import genai
 
-        client = genai.Client()
+        from google.genai import types
+        client = genai.Client(http_options=types.HttpOptions(
+            timeout=_AI_TIMEOUT_MS, retry_options=types.HttpRetryOptions(attempts=1)))
         lista = '\n'.join(f'- {c}' for c in conceptos)
         categorias = ', '.join(c for c in CATEGORIAS_VALIDAS if c not in _CATEGORIAS_FALLBACK)
         prompt = (
@@ -205,26 +255,63 @@ def _detect_banco(header_text: str, filename: str) -> str:
     return 'Efectivo'
 
 
-def _extract_transactions(df: pd.DataFrame) -> pd.DataFrame:
+def _pick_amount(df: pd.DataFrame) -> tuple:
+    """Elige la columna (o par débito/crédito) del monto. Retorna (serie con signo, advertencias).
+
+    Prioridad: columna única de monto/importe → par débito+crédito (crédito − débito)
+    → cualquier débito/crédito suelto → saldo. Un extracto con débito y crédito
+    en columnas separadas perdía antes todos los ingresos."""
+    cols = list(df.columns)
+    has = lambda c, ks: any(k in c.lower() for k in ks)
+    single = [c for c in cols if has(c, ('monto', 'importe', 'amount'))]
+    debit = [c for c in cols if has(c, ('debito', 'débito', 'cargo', 'retiro', 'debit'))]
+    credit = [c for c in cols if has(c, ('credito', 'crédito', 'abono', 'deposito', 'depósito', 'credit'))]
+    balance = [c for c in cols if has(c, ('saldo', 'balance'))]
+    if single:
+        return df[single[0]].map(_to_number), []
+    if debit and credit:
+        d = df[debit[0]].map(_to_number).abs()
+        c = df[credit[0]].map(_to_number).abs()
+        both_nan = d.isna() & c.isna()
+        amount = c.fillna(0) - d.fillna(0)
+        return amount.mask(both_nan), []
+    if debit or credit:
+        col = (debit or credit)[0]
+        sign = -1 if debit else 1
+        return df[col].map(_to_number).abs() * sign, [f'solo se encontró la columna "{col}"; los movimientos del otro sentido no se incluyen']
+    if balance:
+        return df[balance[0]].map(_to_number), [f'se usó la columna "{balance[0]}" como monto (no hay monto/débito/crédito)']
+    if len(cols) >= 3:
+        return df[cols[2]].map(_to_number), [f'se asumió que "{cols[2]}" es el monto']
+    raise ValueError('No se pudo detectar la columna de monto')
+
+
+def _extract_transactions(df: pd.DataFrame, ai_categorize: bool = True) -> tuple:
+    """Retorna (DataFrame de movimientos, lista de advertencias)."""
     date_cols = [c for c in df.columns if any(k in c.lower() for k in ['fecha', 'date', 'fec'])]
     desc_cols = [c for c in df.columns if any(k in c.lower() for k in ['descrip', 'concepto', 'detalle', 'detail', 'memo', 'concept'])]
-    amount_cols = [c for c in df.columns if any(k in c.lower() for k in ['monto', 'importe', 'amount', 'debito', 'credito', 'cargo', 'abono', 'saldo'])]
 
     if not date_cols and len(df.columns) >= 1:
         date_cols = [df.columns[0]]
     if not desc_cols and len(df.columns) >= 2:
         desc_cols = [df.columns[1]]
-    if not amount_cols and len(df.columns) >= 3:
-        amount_cols = [df.columns[2]]
-
-    if not (date_cols and desc_cols and amount_cols):
+    if not (date_cols and desc_cols):
         raise ValueError('No se pudieron detectar columnas de fecha/concepto/monto')
 
-    date_col, desc_col, amount_col = date_cols[0], desc_cols[0], amount_cols[0]
+    date_col, desc_col = date_cols[0], desc_cols[0]
+    amount, warnings = _pick_amount(df)
+    df = df.copy()
+    df['__monto__'] = amount
+    amount_col = '__monto__'
 
-    # Limpieza ETL del monto: convertir a numérico. Lo que no sea número
-    # (cabecera del banco, pie de página) se convierte en NaN.
-    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce')
+    # Una fila sin monto numérico es normalmente cabecera/pie del banco y se
+    # descarta. Pero si tiene una fecha válida es un movimiento que no pudimos
+    # leer: se avisa en vez de perderlo en silencio.
+    sin_monto = df[df[amount_col].isna()]
+    sospechosas = sin_monto[sin_monto[date_col].map(_parse_date).astype(str).str.fullmatch(r'\d{4}-\d{2}-\d{2}')]
+    if len(sospechosas):
+        ejemplos = '; '.join(str(v)[:40] for v in sospechosas[desc_col].head(3))
+        warnings.append(f'{len(sospechosas)} fila(s) con fecha pero sin monto legible se descartaron (p. ej.: {ejemplos})')
 
     # Eliminar todas las filas cuyo monto quedó como NaN: filtra automáticamente
     # la cabecera y el pie de página del banco.
@@ -246,7 +333,7 @@ def _extract_transactions(df: pd.DataFrame) -> pd.DataFrame:
     # Fallback por IA: clasifica los conceptos que las reglas dejaron en
     # 'Otros' / 'Otros ingresos' (best-effort, no bloquea la conversión si falla).
     pendientes = out.loc[out['Categoria'].isin(_CATEGORIAS_FALLBACK), 'Concepto'].unique().tolist()
-    ai_mapping = _ai_categorize_fallback(pendientes)
+    ai_mapping = _ai_categorize_fallback(pendientes) if ai_categorize else {}
     if ai_mapping:
         mask = out['Categoria'].isin(_CATEGORIAS_FALLBACK)
         out.loc[mask, 'Categoria'] = out.loc[mask, 'Concepto'].map(ai_mapping).fillna(out.loc[mask, 'Categoria'])
@@ -257,10 +344,10 @@ def _extract_transactions(df: pd.DataFrame) -> pd.DataFrame:
     return out[[
         'Tipo de Movimiento', 'Flujo Financiero', 'Monto',
         'Fecha de Operacion', 'Concepto', 'Categoria'
-    ]]
+    ]].copy(), warnings
 
 
-def _finalize_finance_csv(df: pd.DataFrame, banco: str, original_name: str) -> dict:
+def _finalize_finance_csv(df: pd.DataFrame, banco: str, original_name: str, ai_categorize: bool = True) -> dict:
     """
     Cola común del pipeline financiero: recibe un DataFrame crudo (con columnas
     de fecha/descripción/monto detectables) y un banco ya resuelto, y produce
@@ -270,7 +357,7 @@ def _finalize_finance_csv(df: pd.DataFrame, banco: str, original_name: str) -> d
     Retorna: { 'buffer': io.BytesIO, 'filename': str, 'entity': str, 'period': str, 'rows': int, 'success': bool, 'error'?: str }
     """
     try:
-        txns = _extract_transactions(df)
+        txns, warnings = _extract_transactions(df, ai_categorize)
     except Exception as e:
         return {'success': False, 'error': f'Error extrayendo transacciones: {e}'}
 
@@ -313,11 +400,12 @@ def _finalize_finance_csv(df: pd.DataFrame, banco: str, original_name: str) -> d
         'entity': banco,
         'period': periodo,
         'rows': len(txns),
+        'warnings': warnings,
         'success': True,
     }
 
 
-def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
+def convert_to_finance_csv(file_bytes: bytes, original_name: str, ai_categorize: bool = True) -> dict:
     """
     Stateless: recibe bytes y nombre original, devuelve BytesIO + filename.
     Lee planillas (.xls/.xlsx/.csv).
@@ -366,7 +454,7 @@ def convert_to_finance_csv(file_bytes: bytes, original_name: str) -> dict:
     # Detectar banco usando cabecera + nombre de archivo
     banco = _detect_banco(header_text, original_name)
 
-    return _finalize_finance_csv(df, banco, original_name)
+    return _finalize_finance_csv(df, banco, original_name, ai_categorize)
 
 
 def convert_to_finance_csv_from_transactions(transacciones: list, banco: str, original_name: str) -> dict:

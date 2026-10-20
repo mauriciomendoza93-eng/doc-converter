@@ -38,7 +38,9 @@ class GeminiProvider(VisionProvider):
     def __init__(self):
         if not os.getenv("GEMINI_API_KEY"):
             raise RuntimeError("GEMINI_API_KEY no configurada en variables de entorno")
-        self.client = genai.Client()
+        # Sin reintentos del SDK: _generate ya reintenta lo transitorio (503) y un 429
+        # (cuota diaria) no mejora esperando; con el backoff del SDK tardaba ~20 s en fallar.
+        self.client = genai.Client(http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)))
 
     def process_text(self, text: str, prompt: str) -> str:
         """Llamada solo-texto (sin imágenes): reestructurar texto ya extraído.
