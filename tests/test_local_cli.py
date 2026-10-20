@@ -207,3 +207,23 @@ def test_worker_timeout_kills_only_that_file(tmp_path):
     item = batch.plan([str(f)]).items[0]
     result = batch._run_worker(item, 'local', 'auto', timeout=0.05)
     assert not result['ok'] and 'tiempo límite' in result['error']
+
+
+def test_markdown_that_loses_text_falls_back_to_plain_page(monkeypatch):
+    """pymupdf4llm 0.0.17 borraba letras de los encabezados; el texto nunca debe perderse."""
+    import pymupdf4llm
+    real = pymupdf4llm.to_markdown
+
+    def broken(doc, **kw):
+        chunks = real(doc, **kw)
+        for c in chunks:
+            c['text'] = c['text'].replace('BANCO NACIONAL DE BOLIVIA', 'CO C O O S O CU')
+        return chunks
+
+    monkeypatch.setattr(pymupdf4llm, 'to_markdown', broken)
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), 'BANCO NACIONAL DE BOLIVIA ESTADO DE CUENTA', fontsize=14)
+    page.insert_text((50, 90), 'Saldo anterior 14,920.15 y movimientos del mes de marzo de 2026 detallados abajo. ' * 2, fontsize=9)
+    r = local_converter.convert_pdf_ex(doc.tobytes())
+    assert 'BANCO NACIONAL DE BOLIVIA' in r.markdown and any('texto plano' in w for w in r.warnings)

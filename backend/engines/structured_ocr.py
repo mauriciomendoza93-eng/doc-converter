@@ -137,3 +137,34 @@ def warm_up() -> float:
         img.save(path)
         analyze([path])
     return time.monotonic() - start
+
+
+def numeric_tokens(text: str) -> list:
+    """Cifras, fechas, códigos: tokens de 2+ caracteres con algún dígito."""
+    return [t for t in tokens(text) if len(t) > 1 and any(c.isdigit() for c in t)]
+
+
+def number_check(reference: str, candidate: str) -> tuple:
+    """(cifras de `reference` que faltan en `candidate`, cifras de `candidate` que no
+    estaban en `reference`). Detecta que un modelo perdió, cambió o inventó un dato."""
+    ref, cand = {}, {}
+    for t in numeric_tokens(reference):
+        ref[t] = ref.get(t, 0) + 1
+    for t in numeric_tokens(candidate):
+        cand[t] = cand.get(t, 0) + 1
+    missing = [t for t, n in ref.items() for _ in range(max(0, n - cand.get(t, 0)))]
+    extra = [t for t, n in cand.items() for _ in range(max(0, n - ref.get(t, 0)))]
+    return missing, extra
+
+
+# Un importe con el mismo separador para miles y decimales (7.740.00, 1,234,50) es
+# casi siempre una coma/punto mal leída por el OCR: se avisa en vez de "arreglarlo".
+_INCONSISTENT_AMOUNT = re.compile(r'(?<![\w.,])\d{1,3}(?:([.,])\d{3})+\1\d{2}(?![\w.,]*\d)')
+
+
+def suspicious_numbers(text: str, limit: int = 5) -> list:
+    found = []
+    for m in _INCONSISTENT_AMOUNT.finditer(text):
+        if m.group(0) not in found:
+            found.append(m.group(0))
+    return found[:limit]

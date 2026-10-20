@@ -29,7 +29,10 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-import fitz  # PyMuPDF
+try:
+    import pymupdf as fitz  # PyMuPDF >= 1.24.x: sin el aviso de deprecación del alias
+except ImportError:  # pragma: no cover
+    import fitz
 
 from backend.engines import structured_ocr
 
@@ -223,6 +226,9 @@ def convert_image(path: str) -> tuple:
     img = _open_image(path)
     img, note = crop_to_document(img)
     text, structured = ocr_images([img])[0]
+    odd = structured_ocr.suspicious_numbers(text)
+    if odd:
+        note = '; '.join(filter(None, [note, 'cifras con formato incoherente, posible error de OCR: ' + ', '.join(odd)]))
     return text, note
 
 
@@ -284,6 +290,16 @@ def convert_pdf_ex(file_bytes: bytes) -> PdfResult:
                 doc, pages=text_pages, page_chunks=True, show_progress=False,
             ):
                 pages_md[chunk['metadata']['page'] - 1] = chunk['text'].strip()
+            # Red de seguridad: el Markdown nunca puede tener menos texto que la página.
+            # pymupdf4llm 0.0.17 borraba letras de los encabezados sin avisar.
+            degraded = []
+            for i in text_pages:
+                raw = doc[i].get_text().strip()
+                if structured_ocr.recall(raw, pages_md.get(i, '')) < structured_ocr.MIN_RECALL:
+                    pages_md[i] = raw
+                    degraded.append(i + 1)
+            if degraded:
+                result.warnings.append(f'página(s) {", ".join(map(str, degraded[:10]))}: el formato Markdown perdía texto; se usó el texto plano')
 
         for start in range(0, len(needs_ocr), _OCR_CHUNK_PAGES):
             batch = needs_ocr[start:start + _OCR_CHUNK_PAGES]
@@ -296,6 +312,10 @@ def convert_pdf_ex(file_bytes: bytes) -> PdfResult:
         shown = ', '.join(map(str, blank[:10])) + ('…' if len(blank) > 10 else '')
         result.warnings.append(f'{len(blank)} página(s) sin texto reconocible: {shown}')
     result.markdown = '\n\n'.join(pages_md[i] for i in range(total) if pages_md.get(i))
+    if result.ocr_pages:
+        odd = structured_ocr.suspicious_numbers(result.markdown)
+        if odd:
+            result.warnings.append('cifras con formato incoherente, posible error de OCR (revisa contra el original): ' + ', '.join(odd))
     return result
 
 
