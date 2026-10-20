@@ -84,6 +84,34 @@ class GeminiProvider(VisionProvider):
                 raise
 
 
+class RouterProvider(VisionProvider):
+    """Mismo contrato que GeminiProvider, pero repartido entre los modelos gratuitos de
+    llm_router (OmniRoute + Gemini) con respaldo y validación. Solo se usa donde hay
+    OMNIROUTE_API_KEY (el CLI/Finder); la web de Vercel sigue con Gemini directo."""
+
+    @staticmethod
+    def _json_ok(text: str):
+        import json
+        try:
+            json.loads(text)
+            return True
+        except ValueError:
+            return 'JSON inválido'
+
+    def process_text(self, text: str, prompt: str) -> str:
+        from backend.engines.llm_router import get_router
+        return get_router().complete(text, system=prompt).text
+
+    def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
+        from backend.engines.llm_router import get_router
+        as_json = response_mime_type == 'application/json'
+        reply = get_router().complete(
+            prompt, document=(file_bytes, mime_type), vision=True, json_mode=as_json,
+            validate=self._json_ok if as_json else None, max_tokens=16000, timeout=180,
+        )
+        return reply.text
+
+
 class MockLocalProvider(VisionProvider):
     """Proveedor mock local (placeholder futuro para Tesseract/otros)."""
 
@@ -108,7 +136,7 @@ def get_vision_provider(provider: str = "gemini") -> VisionProvider:
         ValueError: Si el proveedor no es soportado
     """
     providers = {
-        "gemini": GeminiProvider,
+        "gemini": RouterProvider if os.getenv("OMNIROUTE_API_KEY") else GeminiProvider,
         "mock": MockLocalProvider,
     }
     provider = provider.lower()

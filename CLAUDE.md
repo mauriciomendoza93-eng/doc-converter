@@ -48,6 +48,10 @@ detección es dudosa, solo lo sugiere en la salida. Solo los usa el
 CLI: sus dependencias están en `requirements-local.txt` y **no** se despliegan en
 Vercel.
 
+`backend/engines/llm_router.py` reparte las llamadas de IA del CLI entre OmniRoute y Gemini
+con respaldo, validación de contenido y memoria de modelos caídos (`docs/llm-benchmark.md`);
+la web de Vercel sigue con Gemini directo (sin `OMNIROUTE_API_KEY`).
+
 Si mueves el proyecto, los servicios de Finder se rompen (ruta absoluta): vuelve a
 ejecutar `cli/finder/install.sh` (`--check` diagnostica).
 

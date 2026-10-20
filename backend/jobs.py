@@ -81,6 +81,14 @@ def _convert_bytes(file_bytes: bytes, name: str, route: str, ai_categorize: bool
     return os.path.splitext(name)[0] + '.md', result['markdown'].encode('utf-8'), warns
 
 
+def _vision_method() -> str:
+    """Método para el informe: el modelo que de verdad miró el documento."""
+    if not os.environ.get('OMNIROUTE_API_KEY'):
+        return 'gemini'
+    from backend.engines.llm_router import last_model
+    return f'vision ({last_model()})' if last_model() else 'vision'
+
+
 def _convert_spreadsheet(path: Path, route: str, engine: str) -> Outcome:
     from backend.engines import local_converter
     kind = 'finance' if route == 'finance' else local_converter.spreadsheet_kind(str(path))
@@ -95,25 +103,50 @@ def _convert_spreadsheet(path: Path, route: str, engine: str) -> Outcome:
     return Outcome(outputs, 'local-hojas', note)
 
 
+def _try_statement(path: Path, text: str, route: str, warns: list):
+    """Extracto bancario → CSV de movimientos. Primero desde el TEXTO (cifras
+    verificadas contra el documento); si falla, la visión de Gemini sobre el
+    original. Retorna un Outcome, o None si ninguno funcionó (warns explica por qué)."""
+    from backend.engines import statement_extractor
+    from backend.engines.finance_converter import convert_to_finance_csv_from_transactions
+    try:
+        data = statement_extractor.extract(text)
+        res = convert_to_finance_csv_from_transactions(data['transacciones'], data['banco'], path.name)
+        if not res.get('success'):
+            raise ValueError(res.get('error') or 'CSV inválido')
+        return Outcome([(res['filename'], res['buffer'].getvalue())], f'ia-texto ({data["model"]})',
+                       warns + data['warnings'] + list(res.get('warnings') or []))
+    except Exception as e:
+        warns.append(f'extracto: la extracción desde el texto no sirvió ({str(e)[:150]})')
+    try:
+        name, data_bytes, w = _convert_bytes(path.read_bytes(), path.name, route)
+        return Outcome([(name, data_bytes)], _vision_method(), warns + w)
+    except Exception as e:
+        warns.append(f'extracto: tampoco funcionó la visión ({str(e)[:150]})')
+        return None
+
+
 def _convert_pdf_local(path: Path, route: str) -> Outcome:
     from backend.engines import local_converter
     file_bytes = path.read_bytes()
     first_page = local_converter.pdf_first_page_text(file_bytes)  # valida cifrado/dañado/vacío
-    warns = []
-    # Los extractos bancarios necesitan un modelo que entienda las transacciones
-    # para producir el CSV; el resto se resuelve íntegramente en la Mac.
-    if route == 'auto' and local_converter.looks_like_bank_statement(first_page):
-        try:
-            name, data, w = _convert_bytes(file_bytes, path.name, route)
-            return Outcome([(name, data)], 'gemini', w)
-        except Exception as e:
-            warns.append(f'extracto bancario: Gemini no disponible ({e}); se dejó Markdown local')
     r = local_converter.convert_pdf_ex(file_bytes)
+    warns = list(r.warnings)
+    # En un escaneo la capa de texto está vacía: se busca en el texto reconocido por OCR.
+    probe = (first_page or r.markdown[:3000]).lower()
+    is_statement = route == 'finance' or (route == 'auto' and local_converter.looks_like_bank_statement(probe))
+    if is_statement:
+        outcome = _try_statement(path, r.markdown, route, warns)
+        if outcome:
+            outcome.pages, outcome.ocr_pages, outcome.structured_pages = r.pages, r.ocr_pages, r.structured_pages
+            return outcome
+        if route == 'finance':
+            raise RuntimeError('no se pudieron extraer movimientos del documento: ' + warns[-1])
+        warns.append('se dejó Markdown local')
     if not r.markdown.strip():
         raise RuntimeError('no se pudo extraer texto del PDF')
     method = 'local-ocr' if r.ocr_pages else 'local'
-    return Outcome(_md(path.name, r.markdown), method, warns + r.warnings,
-                   r.pages, r.ocr_pages, r.structured_pages)
+    return Outcome(_md(path.name, r.markdown), method, warns, r.pages, r.ocr_pages, r.structured_pages)
 
 
 def _extract_text(path: Path) -> tuple:
@@ -138,8 +171,9 @@ def _convert_ai(path: Path) -> Outcome:
     if not text.strip():
         raise RuntimeError('sin texto extraíble')
     try:
-        markdown, metodo = text_structurer.structure_markdown(text)
+        markdown, metodo, ai_warnings = text_structurer.structure_markdown(text)
         partial.method = f'local + {metodo}'
+        partial.warnings.extend(ai_warnings)
     except Exception as e:
         markdown = text
         partial.method = 'local'
@@ -153,9 +187,16 @@ def _convert_local_first(path: Path, route: str) -> Outcome:
     ext = path.suffix.lower()
     if ext in local_converter.OFFICE_EXTS:
         return Outcome(_md(path.name, local_converter.convert_office(str(path))), 'local')
-    if ext in local_converter.IMAGE_EXTS and route != 'finance':
+    if ext in local_converter.IMAGE_EXTS:
         text, note = local_converter.convert_image(str(path))
-        return Outcome(_md(path.name, text), 'local-ocr', [note] if note else [], pages=1, ocr_pages=1)
+        warns = [note] if note else []
+        if route == 'finance':
+            outcome = _try_statement(path, text, route, warns)
+            if not outcome:
+                raise RuntimeError('no se pudieron extraer movimientos de la imagen: ' + warns[-1])
+            outcome.pages = outcome.ocr_pages = 1
+            return outcome
+        return Outcome(_md(path.name, text), 'local-ocr', warns, pages=1, ocr_pages=1)
     if ext == '.pdf':
         return _convert_pdf_local(path, route)
     raise RuntimeError(f'ruta {route!r} no aplica a {ext}')
@@ -177,12 +218,11 @@ def convert_file(path: Path, route: str = 'auto', engine: str = 'local') -> Outc
         return _convert_spreadsheet(path, route, engine)
     if engine == 'ai' and route != 'finance':
         return _convert_ai(path)
-    # Office e imágenes siempre se resuelven en la Mac; PDFs, solo con el motor local.
-    if (engine == 'local' or ext in OFFICE_EXTS or ext in IMAGE_EXTS) and not (route == 'finance' and ext in DOCUMENT_EXTS):
-        return _convert_local_first(path, route)
-    # engine 'vision', o PDF/imagen con --route finance: Gemini mira el documento.
-    name, data, warns = _convert_bytes(path.read_bytes(), path.name, route)
-    return Outcome([(name, data)], 'gemini', warns)
+    # engine 'vision': los PDF los mira Gemini (como la web); lo demás se resuelve en la Mac.
+    if engine == 'vision' and ext == '.pdf':
+        name, data, warns = _convert_bytes(path.read_bytes(), path.name, route)
+        return Outcome([(name, data)], _vision_method(), warns)
+    return _convert_local_first(path, route)
 
 
 # --- Worker ------------------------------------------------------------------

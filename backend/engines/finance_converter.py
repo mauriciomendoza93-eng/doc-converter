@@ -194,37 +194,47 @@ def _detect_categoria(desc: str, monto: float, tipo_movimiento: str) -> str:
 
 def _ai_categorize_fallback(conceptos: list) -> dict:
     """
-    Clasifica por IA (Gemini) los conceptos que las reglas de keyword no
-    lograron identificar (quedaron en 'Otros' / 'Otros ingresos').
+    Clasifica por IA los conceptos que las reglas de keyword no lograron
+    identificar (quedaron en 'Otros' / 'Otros ingresos').
 
-    Best-effort: si GEMINI_API_KEY no está configurada o la llamada falla,
-    retorna {} y las filas conservan la categoría por defecto de las reglas.
+    En el CLI (OMNIROUTE_API_KEY presente) usa la cadena de modelos gratuitos de
+    llm_router; en la web, Gemini directo. Best-effort: sin claves o si la llamada
+    falla retorna {} y las filas conservan la categoría por defecto de las reglas.
     """
-    if not conceptos or not os.getenv('GEMINI_API_KEY'):
+    if not conceptos or not (os.getenv('GEMINI_API_KEY') or os.getenv('OMNIROUTE_API_KEY')):
         return {}
 
+    categorias = ', '.join(c for c in CATEGORIAS_VALIDAS if c not in _CATEGORIAS_FALLBACK)
+    lista = '\n'.join(f'- {c}' for c in conceptos)
+    prompt = (
+        'Eres un clasificador de movimientos bancarios bolivianos. '
+        f'Para cada concepto de la lista, asigna EXACTAMENTE una categoría de esta lista: {categorias}. '
+        'Si genuinamente ninguna categoría aplica, usa "Otros" (egresos) u "Otros ingresos" (ingresos). '
+        'Responde SOLO con un objeto JSON plano {"concepto exacto": "categoria"}, sin markdown ni explicaciones.\n\n'
+        f'Conceptos:\n{lista}'
+    )
     try:
-        from google import genai
-
-        from google.genai import types
-        client = genai.Client(http_options=types.HttpOptions(
-            timeout=_AI_TIMEOUT_MS, retry_options=types.HttpRetryOptions(attempts=1)))
-        lista = '\n'.join(f'- {c}' for c in conceptos)
-        categorias = ', '.join(c for c in CATEGORIAS_VALIDAS if c not in _CATEGORIAS_FALLBACK)
-        prompt = (
-            'Eres un clasificador de movimientos bancarios bolivianos. '
-            f'Para cada concepto de la lista, asigna EXACTAMENTE una categoría de esta lista: {categorias}. '
-            'Si genuinamente ninguna categoría aplica, usa "Otros" (egresos) u "Otros ingresos" (ingresos). '
-            'Responde SOLO con un objeto JSON plano {"concepto exacto": "categoria"}, sin markdown ni explicaciones.\n\n'
-            f'Conceptos:\n{lista}'
-        )
-        response = client.models.generate_content(model='gemini-3.6-flash', contents=[prompt])
-        text = response.text.strip()
+        if os.getenv('OMNIROUTE_API_KEY'):
+            from backend.engines.llm_router import get_router
+            text = get_router().complete(prompt, json_mode=True, timeout=60, validate=_valid_mapping).text
+        else:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(http_options=types.HttpOptions(
+                timeout=_AI_TIMEOUT_MS, retry_options=types.HttpRetryOptions(attempts=1)))
+            text = client.models.generate_content(model='gemini-3.6-flash', contents=[prompt]).text.strip()
         text = re.sub(r'^```(json)?|```$', '', text.strip(), flags=re.MULTILINE).strip()
         mapping = json.loads(text)
         return {k: v for k, v in mapping.items() if v in CATEGORIAS_VALIDAS}
     except Exception:
         return {}
+
+
+def _valid_mapping(text: str):
+    try:
+        return True if isinstance(json.loads(text), dict) else 'no es un objeto JSON'
+    except json.JSONDecodeError:
+        return 'JSON inválido'
 
 
 def _detect_banco(header_text: str, filename: str) -> str:
@@ -457,7 +467,7 @@ def convert_to_finance_csv(file_bytes: bytes, original_name: str, ai_categorize:
     return _finalize_finance_csv(df, banco, original_name, ai_categorize)
 
 
-def convert_to_finance_csv_from_transactions(transacciones: list, banco: str, original_name: str) -> dict:
+def convert_to_finance_csv_from_transactions(transacciones: list, banco: str, original_name: str, ai_categorize: bool = True) -> dict:
     """
     Variante del pipeline financiero para transacciones ya extraídas (ej. por
     OCR de Gemini sobre un PDF/imagen), en vez de leídas de una planilla.
@@ -478,4 +488,4 @@ def convert_to_finance_csv_from_transactions(transacciones: list, banco: str, or
 
     banco = (banco or '').strip() or _detect_banco('', original_name)
 
-    return _finalize_finance_csv(df, banco, original_name)
+    return _finalize_finance_csv(df, banco, original_name, ai_categorize)

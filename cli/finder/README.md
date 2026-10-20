@@ -12,19 +12,43 @@
 | Motor | Qué hace | Medido con documentos reales |
 |---|---|---|
 | `local` (default) | OCR y extracción en la Mac, sin modelo | 6 archivos en 7 s. No estructura formularios |
-| `ai` | Local + Gemini reestructura el texto | Formulario 23 s · avalúo de 21 páginas 57 s, con tablas |
+| `ai` | Local + cadena de modelos gratuitos (OmniRoute → Gemini) reestructura el texto, validado | Formulario 2 págs 14 s · 10 págs con 360 importes 50 s; sin Gemini |
 | `vision` | Manda las imágenes a Gemini (como la web) | El más lento y el que más cuota gasta; el único que corrige errores del OCR, porque mira el documento |
 
 Si la IA devuelve menos texto del que había (señal de que resumió en vez de
 reestructurar), se descarta su salida y se conserva el texto crudo. Perder
 formato es aceptable; perder contenido no.
 
-El modo IA **no manda el documento a Gemini**: el OCR se hace igual en tu Mac y a
-Gemini le llega solo el texto extraído, para que reconstruya títulos y tablas.
-Eso es una solicitud por documento sin importar cuántas páginas tenga (mandar las
-imágenes gastaba una por cada 10-20 páginas y tardaba minutos). Si Gemini no está
-disponible (sin cuota o sin red), se conserva el texto local y el registro lo
-declara: `[local, IA no disponible: ...]`.
+El modo IA **no manda el documento**: el OCR se hace igual en tu Mac y al modelo le llega
+solo el texto extraído, en fragmentos de ~6 000 caracteres, para que reconstruya títulos y
+tablas. Los fragmentos viajan por una **cadena de modelos gratuitos con respaldo**
+(`backend/engines/llm_router.py`): OmniRoute (Antigravity/agy, NVIDIA, Cloudflare...) primero
+y Gemini directo al final, porque su cuota diaria es la que más se agota.
+
+Cada respuesta se **valida** contra el texto de entrada antes de aceptarla: no puede ser más
+corta (resumen), perder texto (recall ≥ 92 %) ni perder, cambiar o inventar cifras. Si un modelo
+falla la validación se prueba el siguiente; si todos fallan, ese fragmento queda sin
+estructurar y el resultado lo declara (`! IA: fragmento 3 de 9 se dejó sin estructurar`).
+Los modelos caídos (credenciales vencidas, sin cuota) o que fallan la validación seguido pasan
+al final de la cola un rato (se recuerda entre archivos del lote). El método queda en el
+informe: `local + ia (omniroute:agy/claude-sonnet-4-6)`. Sin ningún modelo disponible se
+conserva el texto local y se declara: `IA no disponible, se conservó el texto local`.
+
+Configuración en `.env` (ver `.env.example`): `OMNIROUTE_API_KEY` (+ `OMNIROUTE_BASE_URL`) y/o
+`GEMINI_API_KEY`; `DOC_CONVERTER_LLM_TEXT_CHAIN` reemplaza el orden. Diagnóstico:
+
+    .venv/bin/python -m backend.engines.llm_router status   # estado y pausas de cada modelo
+    .venv/bin/python -m backend.engines.llm_router probe    # llama a cada uno de verdad
+    DOC_CONVERTER_LLM_DEBUG=1 .venv/bin/python -m backend.cli --engine ai doc.pdf   # traza
+
+Mediciones y elección de modelos: `docs/llm-benchmark.md`.
+
+**Extractos bancarios (PDF o imagen)**: ya no se le pide a un modelo que *lea píxeles*. El
+texto lo extrae la Mac, el modelo lo convierte en movimientos JSON y cada importe devuelto
+tiene que existir como cifra en el documento; los que no, se descartan y se informan (si son
+más del 20 % se descarta la extracción y se usa la visión de Gemini como respaldo). El banco
+se detecta por palabras clave, no por lo que diga el modelo. Los signos ingreso/egreso los
+infiere el modelo: el informe pide revisar totales.
 
 Por qué el local solo no alcanza en algunos documentos: el OCR lee el texto y
 dónde está, pero no interpreta el diseño. En un formulario a varias columnas
@@ -42,7 +66,7 @@ cuando el diseño es denso. El modelo sí reconstruye esa estructura.
 | `.png`, `.jpg`, `.tiff`, `.heic`, `.webp`, `.bmp`, `.gif` | OCR de Vision | Markdown |
 | `.xls`, `.xlsx`, `.csv` con movimientos (fecha + monto) | pandas | CSV financiero |
 | `.xls`, `.xlsx` que no son un extracto | pandas | un CSV fiel por hoja, sin interpretar columnas |
-| PDF que parece extracto bancario | Gemini | CSV financiero |
+| PDF/imagen que parece extracto bancario | texto local + modelo, cifras verificadas (respaldo: Gemini visión) | CSV financiero |
 
 El OCR de Vision es nativo de macOS: ~0,2 s por página, en paralelo y sin cuota.
 En macOS 26+ se usa `RecognizeDocumentsRequest` (helper `cli/docvision`), que además
