@@ -1,173 +1,43 @@
 #!/usr/bin/env python3
 """
-cli.py — Conversión local de archivos (misma lógica que POST /convert).
+cli.py — Conversión local de archivos y carpetas (misma lógica que POST /convert).
 
 Uso:
-    python -m backend.cli <archivo|carpeta> [...] [--route auto|finance|markdown] [--engine local|ai|vision]
+    python -m backend.cli <archivo|carpeta> [...] [--route auto|finance|markdown]
+                          [--engine local|ai|vision] [--jobs N] [--timeout S]
+                          [--no-recursive] [--force] [--dry-run]
 
 --engine local (default): todo se convierte en la Mac (Office con markitdown,
 PDF con capa de texto con pymupdf4llm, páginas escaneadas e imágenes con el OCR
-nativo de Vision). Gemini solo interviene en extractos bancarios, que necesitan
-un modelo para extraer las transacciones. --engine ai: todo PDF/imagen pasa por
-Gemini, pero solo el TEXTO que ya extrajo la Mac, para que lo reestructure
-(una solicitud por documento en vez de una por cada 10-20 páginas). --engine
-vision: manda las imágenes del documento a Gemini, como la web. Es el más lento
-y el que más cuota gasta, pero el único que puede corregir lo que el OCR leyó
-mal, porque mira el documento en vez de su transcripción.
+nativo de Vision, con tablas y listas reconocidas por RecognizeDocumentsRequest
+en macOS 26+). Gemini solo interviene en extractos bancarios en PDF. --engine ai:
+todo PDF/imagen pasa por Gemini, pero solo el TEXTO que ya extrajo la Mac, para que
+lo reestructure (una solicitud por documento). --engine vision: manda las imágenes
+del documento a Gemini, como la web; el más lento y el que más cuota gasta, pero el
+único que puede corregir lo que el OCR leyó mal.
 
-El resultado (.csv o .md) se escribe junto al archivo original. Si ya existe
-un archivo con ese nombre, se agrega un sufijo numérico en vez de sobrescribir.
-Las carpetas se procesan sin recursión (solo archivos soportados del primer nivel)
-y sus resultados van a una carpeta hermana `<carpeta>_convertida`.
+El resultado (.md o .csv) se escribe junto al archivo original y nunca sobrescribe:
+si el nombre existe se agrega un sufijo numérico. Las carpetas se procesan con
+todas sus subcarpetas (--no-recursive: solo el primer nivel) y sus resultados van a
+una carpeta hermana `<carpeta>_convertida` con la misma estructura, más un
+`_informe.json` con el detalle. Volver a ejecutar sobre la misma carpeta solo
+reconvierte lo que cambió (--force: todo).
+
+Los archivos se convierten en paralelo, cada uno en su propio proceso con tiempo
+límite: uno corrupto o colgado no detiene el lote.
 """
 
 import argparse
-import logging
 import os
 import sys
-import warnings
 from pathlib import Path
-
-# markitdown importa conversores de audio que avisan si falta ffmpeg; no
-# convertimos audio, así que el aviso solo ensucia el registro.
-warnings.filterwarnings('ignore', module='pydub')
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from dotenv import load_dotenv
+from backend import batch  # noqa: E402  (después de ajustar sys.path)
 
-load_dotenv(PROJECT_DIR / '.env')
-logging.getLogger('google_genai').setLevel(logging.ERROR)
-
-from backend.engines import local_converter, text_structurer
-from backend.engines.document_converter import convert_to_markdown, convert_document_smart
-from backend.engines.finance_converter import convert_to_finance_csv
-
-ALREADY_TEXT_EXTS = {'.md', '.markdown', '.txt'}
-FINANCE_EXTS = {'.xls', '.xlsx', '.csv'}
-DOCUMENT_EXTS = {'.pdf', '.png', '.jpg', '.jpeg'}
-SUPPORTED_EXTS = FINANCE_EXTS | DOCUMENT_EXTS | local_converter.OFFICE_EXTS | local_converter.IMAGE_EXTS
-
-
-def _local_markdown(name: str, md: str) -> tuple:
-    return os.path.splitext(name)[0] + '.md', md.encode('utf-8')
-
-
-def convert_path_local_first(path: Path, route: str) -> tuple:
-    """Motor local: retorna (filename, bytes, método) o None si hace falta Gemini."""
-    ext = path.suffix.lower()
-    if ext in local_converter.OFFICE_EXTS:
-        return (*_local_markdown(path.name, local_converter.convert_office(str(path))), 'local')
-    if ext in local_converter.IMAGE_EXTS and route != 'finance':
-        text, note = local_converter.convert_image(str(path))
-        return (*_local_markdown(path.name, text), f'local-ocr, {note}' if note else 'local-ocr')
-    if ext != '.pdf' or route == 'finance':
-        return None
-
-    file_bytes = path.read_bytes()
-    # Los extractos bancarios necesitan un modelo que entienda las transacciones
-    # para producir el CSV; el resto se resuelve íntegramente en la Mac.
-    if route == 'auto' and local_converter.looks_like_bank_statement(local_converter.pdf_first_page_text(file_bytes)):
-        try:
-            return (*convert_bytes(file_bytes, path.name, route), 'gemini')
-        except Exception:
-            pass  # sin cuota / sin red: el Markdown local es mejor que nada
-    markdown, ocr_pages = local_converter.convert_pdf(file_bytes)
-    if not markdown.strip():
-        return None
-    return (*_local_markdown(path.name, markdown), 'local-ocr' if ocr_pages else 'local')
-
-
-def convert_bytes(file_bytes: bytes, name: str, route: str) -> tuple:
-    """Replica el enrutamiento de backend/main.py:/convert. Retorna (filename, bytes)."""
-    if name.lower().endswith(tuple(FINANCE_EXTS)):
-        result = convert_to_finance_csv(file_bytes, name)
-    elif route == 'markdown':
-        result = convert_to_markdown(file_bytes, name)
-    else:
-        result = convert_document_smart(file_bytes, name, force_finance=(route == 'finance'))
-
-    if not result.get('success'):
-        raise RuntimeError(result.get('error') or 'Error en conversión')
-
-    if 'buffer' in result:
-        return result['filename'], result['buffer'].getvalue()
-    filename = result.get('filename') or (name.rsplit('.', 1)[0] + '.md')
-    return filename, result['markdown'].encode('utf-8')
-
-
-def unique_path(path: Path) -> Path:
-    candidate, n = path, 1
-    while candidate.exists():
-        candidate = path.with_name(f'{path.stem}_{n}{path.suffix}')
-        n += 1
-    return candidate
-
-
-def expand_inputs(paths: list) -> list:
-    """Retorna pares (archivo, carpeta de salida)."""
-    jobs = []
-    for raw in paths:
-        p = Path(raw).expanduser().resolve()
-        if p.is_dir():
-            out_dir = p.with_name(f'{p.name}_convertida')
-            jobs.extend(
-                (f, out_dir) for f in sorted(p.iterdir())
-                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTS and not f.name.startswith('.')
-            )
-        else:
-            jobs.append((p, p.parent))
-    return jobs
-
-
-def extract_text_locally(path: Path) -> str:
-    """Texto crudo del archivo, extraído íntegramente en la Mac."""
-    ext = path.suffix.lower()
-    if ext in local_converter.OFFICE_EXTS:
-        return local_converter.convert_office(str(path))
-    if ext in local_converter.IMAGE_EXTS:
-        return local_converter.convert_image(str(path))[0]
-    return local_converter.convert_pdf(path.read_bytes())[0]
-
-
-def convert_path_ai(path: Path, route: str) -> tuple:
-    """Modo IA: extrae el texto localmente y se lo pasa a Gemini para que lo
-    reestructure. Si Gemini no está disponible, conserva el texto local en vez
-    de perder la conversión, y lo declara en el método."""
-    ext = path.suffix.lower()
-    if ext in FINANCE_EXTS or route == 'finance' or ext not in (DOCUMENT_EXTS | local_converter.OFFICE_EXTS | local_converter.IMAGE_EXTS):
-        return None  # planillas y extractos bancarios siguen su propio camino
-
-    text = extract_text_locally(path)
-    if not text.strip():
-        return None  # sin texto extraíble: que lo intente la visión de Gemini
-    try:
-        markdown, metodo = text_structurer.structure_markdown(text)
-        return (*_local_markdown(path.name, markdown), f'local + {metodo}')
-    except Exception as e:
-        return (*_local_markdown(path.name, text), f'local, IA no disponible: {e}')
-
-
-def convert_path(path: Path, out_dir: Path, route: str, engine: str) -> tuple:
-    ext = path.suffix.lower()
-    if ext in ALREADY_TEXT_EXTS:
-        raise RuntimeError(f'ya es texto ({ext}); selecciona el documento original')
-    if ext not in SUPPORTED_EXTS:
-        raise RuntimeError(f'tipo de archivo no soportado ({path.suffix or "sin extensión"})')
-    result = None
-    if engine == 'ai':
-        result = convert_path_ai(path, route)
-    elif engine == 'local' or ext in local_converter.OFFICE_EXTS or ext in local_converter.IMAGE_EXTS:
-        result = convert_path_local_first(path, route)
-    if result is None:
-        method = 'local' if ext in FINANCE_EXTS else 'gemini'
-        result = (*convert_bytes(path.read_bytes(), path.name, route), method)
-    filename, data, method = result
-    out_dir.mkdir(exist_ok=True)
-    out_path = unique_path(out_dir / os.path.basename(filename))
-    out_path.write_bytes(data)
-    return out_path, method
+DEFAULT_JOBS = max(1, min(3, (os.cpu_count() or 2) - 1))
 
 
 def main(argv=None) -> int:
@@ -175,22 +45,48 @@ def main(argv=None) -> int:
     parser.add_argument('paths', nargs='+', help='Archivos o carpetas a convertir')
     parser.add_argument('--route', choices=('auto', 'finance', 'markdown'), default='auto')
     parser.add_argument('--engine', choices=('local', 'ai', 'vision'), default='local')
+    parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS, help='archivos en paralelo (default %(default)s)')
+    parser.add_argument('--timeout', type=int, default=batch.DEFAULT_TIMEOUT, help='segundos máximos por archivo (default %(default)s)')
+    parser.add_argument('--no-recursive', action='store_true', help='en carpetas, solo el primer nivel')
+    parser.add_argument('--force', action='store_true', help='reconvertir aunque la carpeta ya esté convertida y sin cambios')
+    parser.add_argument('--dry-run', action='store_true', help='listar qué se convertiría, sin convertir')
     args = parser.parse_args(argv)
 
-    jobs = expand_inputs(args.paths)
-    if not jobs:
+    plan = batch.plan(args.paths, recursive=not args.no_recursive)
+    for m in plan.missing:
+        print(f'Error: no existe {m}', file=sys.stderr)
+    if not plan.items:
         print('No se encontraron archivos soportados.', file=sys.stderr)
+        if plan.ignored:
+            print('Ignorados: ' + _ignored_text(plan.ignored), file=sys.stderr)
         return 1
 
-    errors = 0
-    for path, out_dir in jobs:
-        try:
-            out_path, method = convert_path(path, out_dir, args.route, args.engine)
-            print(f'{path.name} -> {out_path.name} [{method}]')
-        except Exception as e:
-            errors += 1
-            print(f'Error con {path.name}: {e}', file=sys.stderr)
-    return 1 if errors else 0
+    if args.dry_run:
+        for it in plan.items:
+            print(f'{it.rel}  ->  {it.out_dir}')
+        print(f'{len(plan.items)} archivo(s) a convertir.')
+        return 0
+
+    stats = batch.run(plan, args.engine, args.route, jobs=args.jobs, timeout=args.timeout, force=args.force)
+
+    parts = [f'{stats["converted"]} convertido(s)']
+    if stats['unchanged']:
+        parts.append(f'{stats["unchanged"]} sin cambios')
+    if stats['skipped']:
+        parts.append(f'{stats["skipped"]} omitido(s)')
+    if stats['errors']:
+        parts.append(f'{stats["errors"]} con error')
+    if plan.ignored:
+        parts.append('ignorados: ' + _ignored_text(plan.ignored))
+    print(f'Resumen: {", ".join(parts)} en {stats["seconds"]}s')
+    for root in plan.out_roots:
+        if (root / batch.REPORT_NAME).exists():
+            print(f'Informe: {root / batch.REPORT_NAME}')
+    return 1 if stats['errors'] or plan.missing else 0
+
+
+def _ignored_text(ignored) -> str:
+    return ', '.join(f'{k}×{v}' for k, v in ignored.most_common(6))
 
 
 if __name__ == '__main__':
