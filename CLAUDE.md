@@ -35,6 +35,11 @@ los Servicios de Finder **Convertir con Doc Converter** (local) y **(IA)**
 cli/finder/install.sh   # registra el clic derecho > Servicios
 ```
 
+`backend/cli.py` planifica (`backend/batch.py`: carpetas recursivas, nombres sin
+colisiones, `_informe.json`) y ejecuta cada archivo en un proceso worker aislado con
+tiempo límite (`backend/jobs.py`). `cli/docvision/` es un helper Swift (Vision
+`RecognizeDocumentsRequest`, macOS 26+) que reconoce tablas/listas; `install.sh` lo
+compila y precalienta (el arranque en frío son ~30 s por binario nuevo).
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
 pymupdf4llm y OCR de Vision por página) y `backend/engines/text_structurer.py`
 reestructura ese texto con Gemini en modo texto (`--engine ai`). Las fotos se recortan
@@ -43,12 +48,16 @@ detección es dudosa, solo lo sugiere en la salida. Solo los usa el
 CLI: sus dependencias están en `requirements-local.txt` y **no** se despliegan en
 Vercel.
 
+Si mueves el proyecto, los servicios de Finder se rompen (ruta absoluta): vuelve a
+ejecutar `cli/finder/install.sh` (`--check` diagnostica).
+
 Se evaluó y descartó un modelo local (Ollama) para estructurar: en un documento
 de 21 páginas recortó más de la mitad del contenido y tardó 4 min 21 s frente a
 57 s de Gemini. También se descartó docling: su OCR lee peor que Vision. Y MinerU 4 (2026-09):
 estructura mejor tablas escaneadas, pero 40 s/página, ~2 GB, servidor propio,
 nube china por defecto y aún con errores de dígitos; para escaneos puntuales
-basta `--engine vision` (Gemini).
+basta `--engine vision` (Gemini). GLM-OCR / PaddleOCR-VL vía MLX son candidatos
+no evaluados aquí si `docvision` no alcanza en algún documento.
 
 ## Servidor propio (HP)
 

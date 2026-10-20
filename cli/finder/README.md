@@ -39,18 +39,46 @@ cuando el diseño es denso. El modelo sí reconstruye esa estructura.
 | `.doc`, `.rtf`, `.odt` | textutil (macOS) → markitdown | Markdown |
 | `.pdf` con capa de texto | pymupdf4llm | Markdown |
 | `.pdf` escaneado o mixto | pymupdf4llm + OCR de Vision (macOS) por página | Markdown |
-| `.png`, `.jpg`, `.tiff`, `.heic` | OCR de Vision | Markdown |
-| `.xls`, `.xlsx`, `.csv` | pandas | CSV financiero |
+| `.png`, `.jpg`, `.tiff`, `.heic`, `.webp`, `.bmp`, `.gif` | OCR de Vision | Markdown |
+| `.xls`, `.xlsx`, `.csv` con movimientos (fecha + monto) | pandas | CSV financiero |
+| `.xls`, `.xlsx` que no son un extracto | pandas | un CSV fiel por hoja, sin interpretar columnas |
 | PDF que parece extracto bancario | Gemini | CSV financiero |
 
 El OCR de Vision es nativo de macOS: ~0,2 s por página, en paralelo y sin cuota.
-Gemini solo se usa para extractos bancarios, porque extraer transacciones
-necesita un modelo; si falla (sin cuota o sin red), cae a Markdown local.
+En macOS 26+ se usa `RecognizeDocumentsRequest` (helper `cli/docvision`), que además
+reconoce **tablas con sus celdas, listas y títulos** y los entrega como Markdown;
+cada página se contrasta contra el OCR plano y, si la versión estructurada pierde
+texto (recall < 90 %), se conserva el plano. Sin macOS 26 o sin `swiftc`, todo
+funciona igual con el OCR plano.
+Gemini solo se usa para extractos bancarios en PDF, porque extraer transacciones
+necesita un modelo; si falla (sin cuota o sin red), cae a Markdown local. El motor
+local **no** manda conceptos de planillas a Gemini para categorizarlos.
+
+Cifras de un extracto: acepta `1,000.00`, `1.000,00`, `(250.50)`, `250.50-`; con
+columnas separadas de débito y crédito calcula el signo; una fila con fecha pero
+sin monto legible se informa como advertencia en vez de perderse en silencio.
 
 El resultado se guarda junto al archivo original y nunca sobrescribe: si el
-nombre existe, agrega `_1`, `_2`. Si seleccionas una carpeta, se convierten los
-archivos soportados del primer nivel y los resultados van a la carpeta hermana
-`<carpeta>_convertida`.
+nombre existe, agrega `_1`, `_2`. Si dos archivos comparten nombre (`memo.docx` y
+`memo.rtf`), cada resultado conserva su extensión (`memo.docx.md`, `memo.rtf.md`).
+
+## Carpetas y lotes
+
+Si seleccionas una carpeta se convierten **todas sus subcarpetas** (usa
+`--no-recursive` para solo el primer nivel) y los resultados van a la carpeta
+hermana `<carpeta>_convertida` con la misma estructura. Se ignoran archivos ocultos,
+bloqueos de Office (`~$…`), `.DS_Store`, paquetes (`.app`, `.photoslibrary`…), las
+carpetas `*_convertida` y los `.md/.txt`; el resumen dice cuántos y de qué tipo.
+
+- **Paralelo y aislado**: hasta 3 archivos a la vez, cada uno en su propio proceso
+  con tiempo límite (`--timeout`, 900 s). Un PDF corrupto, cifrado o colgado se
+  informa con un mensaje claro y el resto sigue.
+- **`_informe.json`** en la carpeta de salida: por archivo, método, páginas, páginas
+  con OCR, advertencias (p. ej. "2 página(s) sin texto reconocible: 7, 12"), errores
+  y huella SHA-256.
+- **Idempotente**: volver a ejecutar sobre la misma carpeta solo reconvierte lo que
+  cambió (`--force` para todo) y reemplaza sus propias salidas en vez de numerarlas.
+- `--dry-run` lista qué se convertiría sin tocar nada.
 
 ## Instalación
 
@@ -58,6 +86,16 @@ archivos soportados del primer nivel y los resultados van a la carpeta hermana
     .venv/bin/python -m pip install -r requirements.txt
     .venv/bin/python -m pip install -r requirements-local.txt
     cli/finder/install.sh
+
+`install.sh` compila y precalienta `docvision` (la primera vez Vision tarda ~30 s en
+preparar el modelo; después, ~0,2 s por página), registra los servicios y hace una
+prueba de extremo a extremo con el mismo script del clic derecho.
+
+Los servicios guardan la ruta absoluta del proyecto: **si mueves la carpeta, vuelve a
+ejecutar `install.sh`** (si no, el clic derecho avisa con una notificación en vez de
+fallar en silencio). Para diagnosticar sin reinstalar:
+
+    cli/finder/install.sh --check
 
 `GEMINI_API_KEY` en `.env` solo hace falta para extractos bancarios y el modo IA.
 
@@ -80,7 +118,8 @@ rápidas) > **Convertir con Doc Converter**.
 
 Desde la terminal:
 
-    .venv/bin/python -m backend.cli archivo.pdf [--engine local|ai] [--route auto|finance|markdown]
+    .venv/bin/python -m backend.cli archivo.pdf|carpeta [--engine local|ai|vision] [--route auto|finance|markdown]
+                                    [--jobs N] [--timeout S] [--no-recursive] [--force] [--dry-run]
 
 Cada línea del resultado indica el motor usado: `[local]`, `[local-ocr]` o `[gemini]`.
 
