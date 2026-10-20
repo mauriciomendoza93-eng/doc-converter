@@ -24,3 +24,6 @@ dist/
 .vercel
 .env*
 data/
+
+# Binario compilado de docvision
+cli/docvision/.build/
