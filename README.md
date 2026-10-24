@@ -90,9 +90,12 @@ deploy/hp/deploy.sh   # sube código, crea .env y base, levanta el contenedor y 
 ```
 
 → https://hp-server.taila36576.ts.net:8300/tools. El timer
-`doc-converter-backup` (04:40 diario) purga caducados y respalda `data/` y
-`.env` en el repo restic del HP con la etiqueta `doc-converter`
-(14 diarias, 8 semanales, 6 mensuales). Restaurar:
+`doc-converter-backup` purga caducados y respalda `data/` y
+`.env` en el repo restic del HP (en el Toshiba) con la etiqueta `doc-converter`
+(14 diarias, 8 semanales, 6 mensuales). **Desde 2026-10-24 el Toshiba es un disco en frío**: este
+respaldo corre solo al ejecutar el respaldo manual del HP (`sudo ~/bin/hp-toshiba backup`); el `.env`
+también está en el espejo `dev-sync` del HGST y los archivos de `data/` son temporales. Restaurar
+(con el Toshiba conectado y montado):
 
 ```bash
 ssh hp-server 'sudo restic -r /srv/storage/toshiba/Servidor_Backups_HP/restic --password-file /srv/apps/backups/restic.key restore latest --tag doc-converter --target /tmp/restore-dc'
