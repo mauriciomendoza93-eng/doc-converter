@@ -28,9 +28,12 @@ fi
 
 ssh -t "$HOST" "cd $DIR/app && DOC_CONVERTER_DATA=$DIR/data sudo -E docker compose up -d --build --remove-orphans"
 ssh -t "$HOST" "sudo tailscale serve --bg --https=8300 http://127.0.0.1:8300 >/dev/null"
+# El respaldo escribe en el Toshiba, que es un disco en frío (2026-10-24): se instala pero el
+# timer queda apagado si el Toshiba no está montado; el respaldo corre en `sudo hp-toshiba backup`.
 ssh -t "$HOST" "sudo install -m 644 $DIR/app/deploy/hp/doc-converter-backup.service $DIR/app/deploy/hp/doc-converter-backup.timer /etc/systemd/system/ \
   && sudo install -m 755 $DIR/app/deploy/hp/backup.sh /usr/local/bin/doc-converter-backup \
-  && sudo systemctl daemon-reload && sudo systemctl enable --now doc-converter-backup.timer >/dev/null"
+  && sudo systemctl daemon-reload \
+  && { mountpoint -q /srv/storage/toshiba || sudo systemctl disable --now doc-converter-backup.timer >/dev/null 2>&1; true; }"
 
 for i in $(seq 1 30); do
   if ssh "$HOST" "curl -fsS http://127.0.0.1:8300/api/status"; then echo; echo "OK → https://hp-server.taila36576.ts.net:8300/tools"; exit 0; fi
