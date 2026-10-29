@@ -80,7 +80,10 @@ cuesta menos).
 `/tools` y `/api/*` (`backend/tools_api.py`, `backend/store.py`,
 `backend/engines/pdf_tools.py`: pikepdf, PyMuPDF, LibreOffice, ocrmypdf). Originales
 inmutables, salidas versionadas, eventos de solo-anexado en Postgres (`doc_converter`),
-caducidad y respaldo restic diario. En Vercel el import de pikepdf falla y solo queda `/convert`.
+caducidad y respaldo restic (manual, con el Toshiba). En Vercel el import de pikepdf falla y solo queda `/convert`.
+La web del HP lee PDF e imágenes por la cadena de OCR (`RouterProvider`, Claude primero) a través del
+OmniRoute del propio HP (contenedor `omniroute` de hp-brain, el de Hermes; `OMNIROUTE_BASE_URL`
+en `/srv/apps/doc-converter/app/.env`, acepta peticiones locales sin clave); Vercel sigue con Gemini directo.
 Tests: `.venv/bin/python -m pytest tests/`. La web (Vercel y HP) convierte un archivo por
 subida; el lote por carpetas (primer nivel) es solo del CLI/Finder.
 
