@@ -23,8 +23,8 @@ activo**; enchufado y sin bajo consumo los tiempos deberían bajar a la mitad o 
 | **Modelos OCR pequeños vía MLX** | Sí | GLM-OCR, PaddleOCR-VL-1.6 y LightOnOCR-3 encabezan OmniDocBench v1.6 y corren en Apple Silicon. Evaluados abajo. |
 
 Ninguna plataforma existente ofrece a la vez OCR de calidad, ejecución local y el flujo que
-ya tiene el proyecto (Finder, lotes, informe, extractos bancarios). Por eso se integró un
-modelo local en el motor existente en vez de reemplazarlo.
+ya tiene el proyecto (Finder, lotes, informe, extractos bancarios). Por eso los lectores se
+integraron en el motor existente en vez de reemplazarlo.
 
 ## Modelos locales (página 5, texto denso)
 
@@ -58,10 +58,38 @@ Fallos del modelo encontrados y cubiertos:
 - **Encabezados y pies repetidos** (código de seguridad, URL de verificación): el modelo
   suele omitirlos. Las cifras que solo leyó Vision se listan en el aviso para revisarlas.
 
+## Nube frente a local (actualización del mismo día)
+
+Mismas páginas (1 formulario, 5 y 10 densas, foto simulada) y mismo criterio. "No reconocidas"
+es la fracción de palabras que el corrector de macOS (es) no reconoce; la cobertura es la
+coincidencia con el OCR plano de Vision.
+
+| Lector | No reconocidas | Tiempo/pág. | Observaciones |
+|---|---|---|---|
+| Vision | 10,5 % | 0,2 s | Ilegible en tramos |
+| GLM-OCR local | 3,3 % | 15-90 s | Escribió "recibita" donde dice "ochenta y cuatro (84) meses" y omitió una frase entera; omite encabezado y pie |
+| Gemini 3 Flash | 3,8 % | 13-28 s | Peor en la foto (42 errores en 591 palabras) |
+| Gemini 3.1 Flash-Lite (OmniRoute) | 4,1 % | 10-25 s | |
+| Gemini 3.6 Flash | 1,8 % | 8-30 s | Devolvió **vacía** la pág. 10 |
+| **Claude Sonnet 4.6 (OmniRoute, gratis)** | **1,5 %** | 10-64 s | Lo más fiel al verificar contra la imagen: "ochenta y cuatro (84)", "abstenerse", "mandato recíproco"; conserva código de seguridad y URL |
+
+La pág. 1 (formulario) parecía mal leída por todos (cobertura 0,53) porque docvision repetía el
+formulario como tabla y como lista; desde entonces se valida contra el OCR plano.
+
+**Familia Claude 5 / 5.5.** OmniRoute lista Sonnet 5, Opus 5, Fable 5 y Haiku 4.5 (proveedores
+dva, kilocode, aug, ddgw), pero todos respondieron 503 (conexiones caídas o sin suscripción) y no
+expone la familia 5.5. No hay `ANTHROPIC_API_KEY`. Costo estimado por 1 000 páginas (1 600 tokens
+de entrada + 1 800 de salida, precios oficiales): Haiku 5.5 ≈ US$ 1, Sonnet 5.5 ≈ 21, Sonnet 4.6 ≈ 32,
+Opus 5.5 ≈ 42; Mistral OCR 2-4. Haiku 5.5 queda primero en la cadena en cuanto haya clave, sin
+medir: cada página igual se valida contra Vision y, si falla, sigue la cadena.
+
 ## Decisión
 
-- Escaneos y fotos: GLM-OCR 8 bits local, con Vision como referencia y respaldo por página.
-- Un solo servicio de Finder. El modo IA, que reordenaba en la nube el texto de Vision, deja de
-  hacer falta para escaneos; sigue en la terminal (`--engine ai`, `--engine vision`).
-- Mistral OCR queda como opción a evaluar solo si aparece un tipo de documento que el modelo
-  local no lea, con conocimiento de que el documento sale de la Mac.
+- Escaneos y fotos (`DOC_CONVERTER_OCR=auto`, por defecto): nube primero (Haiku 5.5 con clave →
+  Claude Sonnet 4.6 → Gemini 3 Flash → Flash-Lite → Gemini 3.6), luego GLM-OCR local y al final
+  Vision. Cada página se valida contra el OCR plano de Vision. `--ocr local` no deja salir la
+  imagen de la Mac.
+- second-brain usa `local`: su regla es que ningún documento sale a un LLM en la ingesta.
+- Web (Vercel y HP): Gemini directo, con Gemini 3 Flash de respaldo si 3.6 devuelve vacío o sin cuota.
+- Un solo servicio de Finder. El modo IA sigue en la terminal (`--engine ai`, `--engine vision`).
+- Mistral OCR no hace falta: Claude por OmniRoute lee mejor gratis y Haiku 5.5 cuesta menos.

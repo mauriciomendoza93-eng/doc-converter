@@ -42,10 +42,12 @@ tiempo límite (`backend/jobs.py`). `cli/docvision/` es un helper Swift (Vision
 `RecognizeDocumentsRequest`, macOS 26+) que reconoce tablas/listas; `install.sh` lo
 compila y precalienta (el arranque en frío son ~30 s por binario nuevo).
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
-pymupdf4llm y OCR por página: `read_images` usa GLM-OCR local vía MLX
-(`backend/engines/vlm_ocr.py` + helper `cli/vlmocr/` en su propio `.venv-ocr`, porque
-mlx-vlm choca con las versiones de fastapi de la web) y Vision como referencia y respaldo
-por página; `docs/ocr-benchmark.md`) y `backend/engines/text_structurer.py`
+pymupdf4llm y OCR por página: `read_images` prueba la nube (cadena de `vlm_ocr.CLOUD_CHAIN`:
+Haiku 5.5 con `ANTHROPIC_API_KEY`, Claude Sonnet 4.6 vía OmniRoute, Gemini), luego GLM-OCR local
+vía MLX (helper `cli/vlmocr/` en su propio `.venv-ocr`, porque mlx-vlm choca con las versiones
+de fastapi de la web) y Vision al final; el OCR plano de Vision valida cada lectura.
+`DOC_CONVERTER_OCR=auto|local|vision` (CLI `--ocr`) decide si la imagen sale de la Mac;
+second-brain fuerza `local`. Mediciones en `docs/ocr-benchmark.md`) y `backend/engines/text_structurer.py`
 reestructura ese texto con Gemini en modo texto (`--engine ai`). Las fotos se recortan
 y enderezan al documento con Vision antes del OCR (`crop_to_document`); si la
 detección es dudosa, solo lo sugiere en la salida. Solo los usa el
@@ -66,9 +68,10 @@ estructura mejor tablas escaneadas, pero 40 s/página, ~2 GB, servidor propio,
 nube china por defecto y aún con errores de dígitos; para escaneos puntuales
 basta `--engine vision` (Gemini). GLM-OCR / PaddleOCR-VL vía MLX son candidatos
 no evaluados aquí si `docvision` no alcanza en algún documento. **Actualización 2026-10**:
-se evaluaron (`docs/ocr-benchmark.md`) y GLM-OCR 8 bits quedó como OCR por defecto de
-escaneos y fotos; PaddleOCR-VL-1.6 4 bits leyó peor que Vision y LightOnOCR-3 entró en bucle.
-Se descartó Mistral OCR (nube, de pago, el documento sale de la Mac) como motor por defecto.
+se evaluaron (`docs/ocr-benchmark.md`): Claude Sonnet 4.6 vía OmniRoute lee mejor que todo
+lo local; GLM-OCR 8 bits es el respaldo sin red; PaddleOCR-VL-1.6 4 bits leyó peor que Vision
+y LightOnOCR-3 entró en bucle. Mistral OCR no hace falta (Claude gratis lee mejor; Haiku 5.5
+cuesta menos).
 
 ## Servidor propio (HP)
 
@@ -153,7 +156,7 @@ else:  # auto
 | Variable | Descripción |
 |----------|-------------|
 | `GEMINI_API_KEY` | Clave Google Gemini para OCR Vision (requerida para PDF/imágenes) |
-| `ANTHROPIC_API_KEY` | (Opcional) Fallback Anthropic Vision |
+| `ANTHROPIC_API_KEY` | (Opcional, solo CLI/Finder) Claude Haiku 5.5 primero en la cadena de OCR |
 
 ## Estado actual
 
