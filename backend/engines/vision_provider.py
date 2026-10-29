@@ -53,9 +53,31 @@ class GeminiProvider(VisionProvider):
             response_mime_type,
         )
 
+    # Gemini 3.6 Flash lee mejor, pero en una prueba devolvió vacía una página escaneada
+    # (docs/ocr-benchmark.md); 3 Flash es el respaldo, con su propia cuota diaria.
+    MODELS = ('gemini-3.6-flash', 'gemini-3-flash-preview')
+
     def _generate(self, contents: list, response_mime_type: str = None) -> str:
         config = types.GenerateContentConfig(response_mime_type=response_mime_type) if response_mime_type else None
+        quota_hit = False
+        for model in self.MODELS:
+            try:
+                text = self._generate_with(model, contents, config)
+            except _QuotaExceeded:
+                quota_hit = True
+                continue
+            if text and text.strip():
+                return text
+        if quota_hit:
+            # Cuota gratuita de Gemini agotada (20 requests/día por modelo en el tier
+            # gratuito) — reintentar no ayuda, hay que esperar.
+            raise RuntimeError(
+                'Se alcanzó el límite diario gratuito de Gemini (20 solicitudes/día). '
+                'Intenta de nuevo más tarde o usa otra GEMINI_API_KEY.'
+            )
+        return ''
 
+    def _generate_with(self, model: str, contents: list, config) -> str:
         # Reintentos acotados solo para errores transitorios de disponibilidad
         # (503 UNAVAILABLE por alta demanda). El backoff es corto a propósito:
         # la función serverless corre con maxDuration limitado (plan gratuito).
@@ -63,7 +85,7 @@ class GeminiProvider(VisionProvider):
         for attempt in range(max_retries + 1):
             try:
                 response = self.client.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model=model,
                     contents=contents,
                     config=config,
                 )
@@ -71,17 +93,16 @@ class GeminiProvider(VisionProvider):
             except Exception as e:
                 msg = str(e)
                 if '429' in msg or 'RESOURCE_EXHAUSTED' in msg:
-                    # Cuota gratuita de Gemini agotada (20 requests/día en el
-                    # tier gratuito) — reintentar no ayuda, hay que esperar.
-                    raise RuntimeError(
-                        'Se alcanzó el límite diario gratuito de Gemini (20 solicitudes/día). '
-                        'Intenta de nuevo más tarde o usa otra GEMINI_API_KEY.'
-                    ) from e
+                    raise _QuotaExceeded() from e
                 is_transient = '503' in msg or 'UNAVAILABLE' in msg
                 if is_transient and attempt < max_retries:
                     time.sleep(1.5 * (attempt + 1))
                     continue
                 raise
+
+
+class _QuotaExceeded(Exception):
+    pass
 
 
 class RouterProvider(VisionProvider):
