@@ -108,7 +108,9 @@ class _QuotaExceeded(Exception):
 class RouterProvider(VisionProvider):
     """Mismo contrato que GeminiProvider, pero repartido entre los modelos gratuitos de
     llm_router (OmniRoute + Gemini) con respaldo y validación. Solo se usa donde hay
-    OMNIROUTE_API_KEY (el CLI/Finder); la web de Vercel sigue con Gemini directo."""
+    OMNIROUTE_API_KEY: el CLI/Finder (OmniRoute del Mac) y la web del HP (su OmniRoute
+    local, el de Hermes); la web de Vercel sigue con Gemini directo. Los documentos van
+    por la cadena de OCR medida (vlm_ocr.CLOUD_CHAIN: Claude primero)."""
 
     @staticmethod
     def _json_ok(text: str):
@@ -123,12 +125,16 @@ class RouterProvider(VisionProvider):
         from backend.engines.llm_router import get_router
         return get_router().complete(text, system=prompt).text
 
+    @staticmethod
+    def _not_empty(text: str):
+        return True if text.strip() else 'respuesta vacía'
+
     def process_document(self, file_bytes: bytes, mime_type: str, prompt: str, response_mime_type: str = None) -> str:
-        from backend.engines.llm_router import get_router
+        from backend.engines import vlm_ocr
         as_json = response_mime_type == 'application/json'
-        reply = get_router().complete(
+        reply = vlm_ocr._cloud_router().complete(
             prompt, document=(file_bytes, mime_type), vision=True, json_mode=as_json,
-            validate=self._json_ok if as_json else None, max_tokens=16000, timeout=180,
+            validate=self._json_ok if as_json else self._not_empty, max_tokens=16000, timeout=180,
         )
         return reply.text
 
