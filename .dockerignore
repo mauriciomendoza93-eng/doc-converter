@@ -1,5 +1,6 @@
 .git
 .venv
+.venv-ocr
 .env*
 data
 tests
