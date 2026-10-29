@@ -1,9 +1,9 @@
 #!/bin/bash
-# Instala los Servicios de Finder (clic derecho) que ejecutan run-convert.sh:
-#   "Convertir con Doc Converter"       → engine local (sin Gemini salvo extractos PDF)
-#   "Convertir con Doc Converter (IA)"  → engine ai (reestructura con Gemini)
+# Instala el Servicio de Finder (clic derecho) "Convertir con Doc Converter", que ejecuta
+# run-convert.sh con el motor local: OCR con modelo de visión en la Mac (GLM-OCR,
+# cli/vlmocr) y Vision como respaldo. Quita el antiguo servicio "(IA)", que ya no hace falta.
 #
-# Uso:  cli/finder/install.sh           instala, compila docvision y prueba de punta a punta
+# Uso:  cli/finder/install.sh           instala, prepara el OCR y prueba de punta a punta
 #       cli/finder/install.sh --check   solo diagnostica los servicios ya instalados
 #
 # Si mueves la carpeta del proyecto hay que volver a ejecutarlo: los servicios
@@ -13,7 +13,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
-SERVICES=("Convertir con Doc Converter" "Convertir con Doc Converter (IA)")
+SERVICES=("Convertir con Doc Converter")
+OLD_SERVICES=("Convertir con Doc Converter (IA)")
 
 check_services() {
   local bad=0 name wf cmd
@@ -30,6 +31,11 @@ check_services() {
   [ -x "$PYTHON_BIN" ] && echo "✓ entorno Python: $PYTHON_BIN" || { echo "✗ falta $PYTHON_BIN"; bad=1; }
   if [ -x "$PROJECT_DIR/cli/docvision/.build/docvision" ]; then echo "✓ docvision (tablas/listas con Vision)"
   else echo "• docvision no compilado: se usará el OCR plano (requiere macOS 26+)"; fi
+  if [ -x "$PROJECT_DIR/.venv-ocr/bin/python" ]; then echo "✓ OCR con modelo (GLM-OCR local, .venv-ocr)"
+  else echo "• OCR con modelo no instalado: escaneos y fotos con Vision (ejecuta cli/vlmocr/setup.sh)"; fi
+  for name in "${OLD_SERVICES[@]}"; do
+    [ -d "$HOME/Library/Services/$name.workflow" ] && echo "• servicio antiguo \"$name\" aún instalado: install.sh lo quita"
+  done
   return $bad
 }
 
@@ -52,6 +58,9 @@ if [ -x "$PROJECT_DIR/cli/docvision/.build/docvision" ]; then
   echo "Precalentando Vision (la primera vez tarda ~30 s)…"
   (cd "$PROJECT_DIR" && "$PYTHON_BIN" -c "from backend.engines import structured_ocr as s; print('listo en %.0fs' % s.warm_up())") || echo "Aviso: no se pudo precalentar docvision." >&2
 fi
+
+# OCR con modelo de visión local (escaneos y fotos): entorno aislado + descarga del modelo.
+"$PROJECT_DIR/cli/vlmocr/setup.sh"
 
 install_service() {
 local SERVICE_NAME="$1" ENGINE="$2"
@@ -115,7 +124,12 @@ echo "Instalado: Finder > clic derecho > Servicios (o Acciones rápidas) > $SERV
 }
 
 install_service "${SERVICES[0]}" local
-install_service "${SERVICES[1]}" ai
+for name in "${OLD_SERVICES[@]}"; do
+  if [ -d "$HOME/Library/Services/$name.workflow" ]; then
+    rm -rf "$HOME/Library/Services/$name.workflow"
+    echo "Quitado el servicio antiguo: $name (el motor IA sigue disponible por terminal: --engine ai)"
+  fi
+done
 
 /System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
 

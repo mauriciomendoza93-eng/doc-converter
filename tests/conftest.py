@@ -1,5 +1,11 @@
+import os
+
 import fitz
 import pytest
+
+# El OCR con modelo tarda decenas de segundos por página: los tests usan Vision salvo
+# test_vlm_ocr.py, que lo prueba aparte (RUN_VLM=1 para la prueba real con el modelo).
+os.environ['DOC_CONVERTER_OCR'] = 'vision'
 
 
 def make_pdf(texts):

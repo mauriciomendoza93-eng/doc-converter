@@ -20,6 +20,8 @@ Configuración (env o .env del proyecto):
     OMNIROUTE_API_KEY      clave de cliente de OmniRoute (activa los candidatos omniroute)
     OMNIROUTE_BASE_URL     por defecto http://127.0.0.1:20128/v1
     GEMINI_API_KEY         activa los candidatos gemini
+    ANTHROPIC_API_KEY      activa los candidatos anthropic (API directa, de pago; p. ej. el OCR
+                           con claude-haiku-5-5, ~US$ 1 por 1 000 páginas)
     DOC_CONVERTER_LLM_TEXT_CHAIN / DOC_CONVERTER_LLM_VISION_CHAIN
                            listas separadas por coma, p. ej.
                            "omniroute:agy/claude-sonnet-4-6,gemini:gemini-3-flash-preview"
@@ -77,7 +79,7 @@ class LLMUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class Candidate:
-    kind: str       # 'omniroute' | 'gemini'
+    kind: str       # 'omniroute' | 'gemini' | 'anthropic'
     model: str
 
     @property
@@ -99,7 +101,7 @@ def parse_chain(spec) -> list:
         item = item.strip()
         if ':' in item:
             kind, model = item.split(':', 1)
-            if kind in ('omniroute', 'gemini') and model:
+            if kind in ('omniroute', 'gemini', 'anthropic') and model:
                 out.append(Candidate(kind, model))
     return out
 
@@ -184,6 +186,20 @@ def mark_rejected(label: str) -> None:
 
 def classify(exc: Exception) -> str:
     """Causa → tipo de cooldown."""
+    try:
+        import anthropic
+        if isinstance(exc, anthropic.APIError):
+            if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+                return 'auth'
+            if isinstance(exc, anthropic.NotFoundError):
+                return 'missing'
+            if isinstance(exc, anthropic.RateLimitError):
+                return 'quota'
+            if isinstance(exc, anthropic.APITimeoutError):
+                return 'timeout'
+            return 'down'
+    except ImportError:
+        pass
     if isinstance(exc, urllib.error.HTTPError):
         body = ''
         try:
@@ -278,6 +294,23 @@ def _chat_gemini(model: str, system, user: str, images: list, document, max_toke
     return client.models.generate_content(model=model, contents=parts, config=config).text or ''
 
 
+def _chat_anthropic(model: str, system, user: str, images: list, max_tokens: int, timeout: int) -> str:
+    """API directa de Anthropic (SDK oficial). Las imágenes van como bloques base64 antes del
+    texto; esfuerzo bajo, porque transcribir no necesita razonar y el pensamiento se cobra."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=_env('ANTHROPIC_API_KEY'), timeout=timeout, max_retries=0)
+    content = [{'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
+                                            'data': base64.standard_b64encode(im).decode()}} for im in images]
+    content.append({'type': 'text', 'text': user})
+    kwargs = {'system': system} if system else {}
+    with client.messages.stream(model=model, max_tokens=max_tokens, output_config={'effort': 'low'},
+                                messages=[{'role': 'user', 'content': content}], **kwargs) as stream:
+        message = stream.get_final_message()
+    if message.stop_reason == 'refusal':
+        raise RuntimeError('el modelo declinó la solicitud')
+    return ''.join(b.text for b in message.content if b.type == 'text')
+
+
 def _as_jpeg(data: bytes) -> bytes:
     if data[:2] == b'\xff\xd8':
         return data
@@ -308,6 +341,8 @@ class LLMRouter:
     def configured(self, c: Candidate) -> bool:
         if c.kind == 'omniroute':
             return bool(_env('OMNIROUTE_API_KEY'))
+        if c.kind == 'anthropic':
+            return bool(_env('ANTHROPIC_API_KEY'))
         return bool(_env('GEMINI_API_KEY'))
 
     def available(self) -> bool:
@@ -349,6 +384,15 @@ class LLMRouter:
                         else:
                             imgs = [_as_jpeg(document[0])]
                     text = _chat_omniroute(cand.model, system, user, imgs or [], max_tokens, json_mode, timeout)
+                elif cand.kind == 'anthropic':
+                    imgs = images
+                    if vision and not imgs and document:
+                        if document[1] == 'application/pdf':
+                            pages = pages or render_pdf_pages(document[0])
+                            imgs = pages
+                        else:
+                            imgs = [_as_jpeg(document[0])]
+                    text = _chat_anthropic(cand.model, system, user, imgs or [], max_tokens, timeout)
                 else:
                     text = _chat_gemini(cand.model, system, user, images or [], document, max_tokens, json_mode, timeout)
             except Exception as exc:
@@ -403,7 +447,10 @@ def _status(probe: bool) -> int:
     print(f'OmniRoute: {"activo" if _omniroute_up(base) else "NO responde"} en {base} '
           f'(clave {"configurada" if _env("OMNIROUTE_API_KEY") else "FALTA OMNIROUTE_API_KEY"})')
     print(f'Gemini directo: clave {"configurada" if _env("GEMINI_API_KEY") else "FALTA GEMINI_API_KEY"}')
-    for title, chain, vision in (('Texto', r.text_chain, False), ('Visión', r.vision_chain, True)):
+    from backend.engines import vlm_ocr
+    ocr_chain = vlm_ocr._cloud_router().vision_chain
+    for title, chain, vision in (('Texto', r.text_chain, False), ('Visión', r.vision_chain, True),
+                                 ('OCR de escaneos y fotos (vlm_ocr)', ocr_chain, True)):
         print(f'\n{title}:')
         for c in chain:
             if not r.configured(c):

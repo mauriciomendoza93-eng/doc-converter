@@ -5,3 +5,5 @@ markitdown[docx,pptx]==0.1.7
 pymupdf4llm==0.0.27
 pymupdf==1.28.2
 ocrmac==1.0.1
+# Proveedor directo de Anthropic (Claude Haiku 5.5 para OCR) en llm_router; solo con ANTHROPIC_API_KEY.
+anthropic==2.3.0
