@@ -1,17 +1,43 @@
 # Acción Rápida de Finder
 
-`install.sh` registra dos Servicios de clic derecho:
+`install.sh` registra **un** Servicio de clic derecho: **Convertir con Doc Converter**
+(`--engine local`). Todo se resuelve en la Mac, sin cuota ni red: los documentos digitales
+en segundos y los escaneos y fotos con un modelo de visión local (GLM-OCR).
 
-| Servicio | Motor | Cuándo usarlo |
-|---|---|---|
-| **Convertir con Doc Converter** | Local (`--engine local`) | Siempre. Segundos, sin cuota. |
-| **Convertir con Doc Converter (IA)** | Local + Gemini (`--engine ai`) | Cuando el local no respetó bien la estructura: formularios densos, tablas complejas. |
+Hasta 2026-10 había un segundo servicio, **(IA)**, que mandaba el texto del OCR a modelos en
+la nube para reordenarlo. Con el OCR por modelo ya no hace falta: el modelo lee la página
+entera en orden y sin la basura que lo motivaba. `install.sh` lo quita; el motor sigue
+disponible por terminal (`--engine ai`).
+
+## OCR de escaneos y fotos: modelo local + Vision
+
+El OCR de Vision lee letra por letra. En escaneos de fax, fotos con sombra o márgenes
+cortados entregaba "edame", "arciles,jen", "iforniación" y restos de sellos ("LUNCA DEL RO").
+Ahora cada página escaneada o foto pasa por **GLM-OCR** (0,9 B parámetros, 8 bits, vía MLX en
+`.venv-ocr`), que lee con contexto de idioma, en orden de lectura y une los párrafos.
+
+Vision sigue corriendo en cada página (0,2 s) como **referencia y respaldo**: la lectura del
+modelo se descarta y queda la de Vision si el modelo entró en bucle, cubre menos del 75 % del
+texto de Vision (se saltó algo) o tiene 1,6× más texto (inventó). Las cifras que Vision leyó y
+el modelo no reproduce se informan para revisarlas (`! cifras que Vision leyó distinto…`). El
+método del informe dice `local-ocr glm-ocr` cuando el modelo leyó al menos una página.
+
+- **Velocidad**: 15-90 s por página en un M4 de 16 GB (lo bajo, enchufado; lo alto, con
+  batería en modo de bajo consumo). Un testimonio notarial de 15 páginas: ver `docs/ocr-benchmark.md`.
+- **Lo que no corrige**: letras que no están en la imagen (margen cortado por el escáner) se
+  completan por contexto y a veces mal ("toto" por "Total"); omite encabezados y pies que se
+  repiten en cada página (código de seguridad, URL). Revisa siempre cifras, nombres y fechas.
+- **Sin el modelo** (otro Mac, `.venv-ocr` borrado, `DOC_CONVERTER_OCR=vision`), todo funciona
+  como antes con Vision.
+- El modelo se descarga una vez al instalar (~1,1 GB en `~/.cache/huggingface`); convertir no
+  usa la red. Otro modelo: `DOC_CONVERTER_OCR_MODEL=mlx-community/GLM-OCR-4bit` (30 % más
+  rápido, algo más de errores).
 
 ## Motores disponibles (`--engine`)
 
 | Motor | Qué hace | Medido con documentos reales |
 |---|---|---|
-| `local` (default) | OCR y extracción en la Mac, sin modelo | 6 archivos en 7 s. No estructura formularios |
+| `local` (default) | Extracción en la Mac; escaneos y fotos con GLM-OCR local (respaldo: Vision) | Digitales: 6 archivos en 7 s. Escaneos: 15-90 s/página |
 | `ai` | Local + cadena de modelos gratuitos (OmniRoute → Gemini) reestructura el texto, validado | Formulario 2 págs 14 s · 10 págs con 360 importes 50 s; sin Gemini |
 | `vision` | Manda las imágenes a Gemini (como la web) | El más lento y el que más cuota gasta; el único que corrige errores del OCR, porque mira el documento |
 
@@ -62,8 +88,8 @@ cuando el diseño es denso. El modelo sí reconstruye esa estructura.
 | `.docx`, `.pptx`, `.html` | markitdown | Markdown |
 | `.doc`, `.rtf`, `.odt` | textutil (macOS) → markitdown | Markdown |
 | `.pdf` con capa de texto | pymupdf4llm | Markdown |
-| `.pdf` escaneado o mixto | pymupdf4llm + OCR de Vision (macOS) por página | Markdown |
-| `.png`, `.jpg`, `.tiff`, `.heic`, `.webp`, `.bmp`, `.gif` | OCR de Vision | Markdown |
+| `.pdf` escaneado o mixto | pymupdf4llm + OCR por página (GLM-OCR local; respaldo Vision) | Markdown |
+| `.png`, `.jpg`, `.tiff`, `.heic`, `.webp`, `.bmp`, `.gif` | recorte del documento + GLM-OCR local (respaldo Vision) | Markdown |
 | `.xls`, `.xlsx`, `.csv` con movimientos (fecha + monto) | pandas | CSV financiero |
 | `.xls`, `.xlsx` que no son un extracto | pandas | un CSV fiel por hoja, sin interpretar columnas |
 | PDF/imagen que parece extracto bancario | texto local + modelo, cifras verificadas (respaldo: Gemini visión) | CSV financiero |
@@ -112,8 +138,9 @@ carpetas `*_convertida` y los `.md/.txt`; el resumen dice cuántos y de qué tip
     cli/finder/install.sh
 
 `install.sh` compila y precalienta `docvision` (la primera vez Vision tarda ~30 s en
-preparar el modelo; después, ~0,2 s por página), registra los servicios y hace una
-prueba de extremo a extremo con el mismo script del clic derecho.
+preparar el modelo; después, ~0,2 s por página), crea `.venv-ocr` y descarga GLM-OCR
+(`cli/vlmocr/setup.sh`, solo Apple Silicon), registra el servicio y hace una prueba de
+extremo a extremo con el mismo script del clic derecho.
 
 Los servicios guardan la ruta absoluta del proyecto: **si mueves la carpeta, vuelve a
 ejecutar `install.sh`** (si no, el clic derecho avisa con una notificación en vez de
@@ -127,6 +154,9 @@ fallar en silencio). Para diagnosticar sin reinstalar:
 
 Finder > selecciona archivo(s)/carpeta > clic derecho > Servicios (o Acciones
 rápidas) > **Convertir con Doc Converter**.
+
+Un lote con escaneos tarda más: el tiempo límite por archivo crece con sus páginas
+(240 s por página y por worker, sobre los 900 s de base) y los workers se turnan la GPU.
 
 ## Cómo saber si está trabajando
 
@@ -145,11 +175,11 @@ Desde la terminal:
     .venv/bin/python -m backend.cli archivo.pdf|carpeta [--engine local|ai|vision] [--route auto|finance|markdown]
                                     [--jobs N] [--timeout S] [--no-recursive] [--force] [--dry-run]
 
-Cada línea del resultado indica el motor usado: `[local]`, `[local-ocr]` o `[gemini]`.
+Cada línea del resultado indica el motor usado: `[local]`, `[local-ocr]`, `[local-ocr glm-ocr]` o `[gemini]`.
 
 Si los servicios no aparecen de inmediato, ejecuta `killall Finder`.
 
 ## Desinstalar
 
     rm -rf ~/Library/Services/"Convertir con Doc Converter.workflow"
-    rm -rf ~/Library/Services/"Convertir con Doc Converter (IA).workflow"
+    rm -rf .venv-ocr   # y el modelo: ~/.cache/huggingface/hub/models--mlx-community--GLM-OCR-8bit

@@ -8,6 +8,7 @@ node_modules/
 
 # Python (entorno virtual y caché)
 .venv/
+.venv-ocr/
 __pycache__/
 *.pyc
 
@@ -27,3 +28,4 @@ data/
 
 # Binario compilado de docvision
 cli/docvision/.build/
+cli/vlmocr/.warm-up.log

@@ -26,12 +26,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.jobs import ALREADY_TEXT_EXTS, SUPPORTED_EXTS
+from backend.jobs import ALREADY_TEXT_EXTS, IMAGE_EXTS, SUPPORTED_EXTS
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 REPORT_NAME = '_informe.json'
 REPORT_VERSION = 1
 DEFAULT_TIMEOUT = 900
+_MODEL_SECONDS_PER_PAGE = 240
 _SKIP_DIRS = {'node_modules', '__pycache__'}
 _SKIP_DIR_SUFFIXES = ('.app', '.photoslibrary', '.bundle', '.framework', '.xcodeproj', '.xcworkspace', '.rtfd', '.pages', '.numbers', '.key')
 _SKIP_FILES = {'.DS_Store', 'Thumbs.db', 'desktop.ini', REPORT_NAME}
@@ -122,6 +123,25 @@ def sha256_of(path: Path) -> str:
 
 
 # --- Ejecución ---------------------------------------------------------------
+
+def _timeout_for(item: Item, base: int, jobs: int) -> int:
+    """Con el OCR por modelo (vlm_ocr), un escaneo tarda hasta ~90 s por página y los
+    workers esperan su turno de GPU: el límite crece con las páginas y los workers. El
+    helper del modelo tiene su propio límite por página, así que un cuelgue igual se corta."""
+    from backend.engines import vlm_ocr
+    ext = item.src.suffix.lower()
+    if ext not in IMAGE_EXTS | {'.pdf'} or not vlm_ocr.available():
+        return base
+    pages = 1
+    if ext == '.pdf':
+        try:
+            import pymupdf
+            with pymupdf.open(item.src) as doc:
+                pages = len(doc)
+        except Exception:
+            return base  # el worker informará el PDF dañado
+    return base + pages * _MODEL_SECONDS_PER_PAGE * max(1, jobs)
+
 
 def _run_worker(item: Item, engine: str, route: str, timeout: int) -> dict:
     scratch = tempfile.mkdtemp(prefix='doc-converter-')
@@ -253,6 +273,7 @@ def run(plan_: Plan, engine: str, route: str, jobs: int = 3, timeout: int = DEFA
                 'outputs': [str(p.relative_to(base)) for p in placed], 'warnings': result.get('warnings', []),
                 'pages': result.get('pages', 0), 'ocr_pages': result.get('ocr_pages', 0),
                 'structured_pages': result.get('structured_pages', 0),
+                'model_pages': result.get('model_pages', 0),
             }
             shown = ', '.join(p.name for p in placed)
             extra = f', {result["pages"]} pág' if result.get('pages') else ''
@@ -261,7 +282,7 @@ def run(plan_: Plan, engine: str, route: str, jobs: int = 3, timeout: int = DEFA
                 log(f'    ! {w}')
 
     def work(item: Item):
-        finish(item, _run_worker(item, engine, route, timeout))
+        finish(item, _run_worker(item, engine, route, _timeout_for(item, timeout, jobs)))
 
     if pending:
         with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(pending)))) as pool:

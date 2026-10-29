@@ -44,6 +44,7 @@ class Outcome:
     pages: int = 0
     ocr_pages: int = 0
     structured_pages: int = 0
+    model_pages: int = 0
 
 
 def _bootstrap():
@@ -139,14 +140,16 @@ def _convert_pdf_local(path: Path, route: str) -> Outcome:
         outcome = _try_statement(path, r.markdown, route, warns)
         if outcome:
             outcome.pages, outcome.ocr_pages, outcome.structured_pages = r.pages, r.ocr_pages, r.structured_pages
+            outcome.model_pages = r.model_pages
             return outcome
         if route == 'finance':
             raise RuntimeError('no se pudieron extraer movimientos del documento: ' + warns[-1])
         warns.append('se dejó Markdown local')
     if not r.markdown.strip():
         raise RuntimeError('no se pudo extraer texto del PDF')
-    method = 'local-ocr' if r.ocr_pages else 'local'
-    return Outcome(_md(path.name, r.markdown), method, warns, r.pages, r.ocr_pages, r.structured_pages)
+    method = 'local' if not r.ocr_pages else _ocr_method(r.model_pages)
+    return Outcome(_md(path.name, r.markdown), method, warns, r.pages, r.ocr_pages, r.structured_pages,
+                   r.model_pages)
 
 
 def _extract_text(path: Path) -> tuple:
@@ -156,11 +159,11 @@ def _extract_text(path: Path) -> tuple:
     if ext in local_converter.OFFICE_EXTS:
         return local_converter.convert_office(str(path)), Outcome()
     if ext in local_converter.IMAGE_EXTS:
-        text, note = local_converter.convert_image(str(path))
-        return text, Outcome(warnings=[note] if note else [])
+        text, note, model = local_converter.convert_image(str(path))
+        return text, Outcome(warnings=[note] if note else [], model_pages=int(model))
     r = local_converter.convert_pdf_ex(path.read_bytes())
     return r.markdown, Outcome(warnings=r.warnings, pages=r.pages, ocr_pages=r.ocr_pages,
-                               structured_pages=r.structured_pages)
+                               structured_pages=r.structured_pages, model_pages=r.model_pages)
 
 
 def _convert_ai(path: Path) -> Outcome:
@@ -182,13 +185,18 @@ def _convert_ai(path: Path) -> Outcome:
     return partial
 
 
+def _ocr_method(model_pages: int) -> str:
+    """Método informado para un documento con OCR: con modelo de visión o solo Vision."""
+    return 'local-ocr glm-ocr' if model_pages else 'local-ocr'
+
+
 def _convert_local_first(path: Path, route: str) -> Outcome:
     from backend.engines import local_converter
     ext = path.suffix.lower()
     if ext in local_converter.OFFICE_EXTS:
         return Outcome(_md(path.name, local_converter.convert_office(str(path))), 'local')
     if ext in local_converter.IMAGE_EXTS:
-        text, note = local_converter.convert_image(str(path))
+        text, note, model = local_converter.convert_image(str(path))
         warns = [note] if note else []
         if route == 'finance':
             outcome = _try_statement(path, text, route, warns)
@@ -196,7 +204,8 @@ def _convert_local_first(path: Path, route: str) -> Outcome:
                 raise RuntimeError('no se pudieron extraer movimientos de la imagen: ' + warns[-1])
             outcome.pages = outcome.ocr_pages = 1
             return outcome
-        return Outcome(_md(path.name, text), 'local-ocr', warns, pages=1, ocr_pages=1)
+        return Outcome(_md(path.name, text), _ocr_method(model), warns, pages=1, ocr_pages=1,
+                       model_pages=int(model))
     if ext == '.pdf':
         return _convert_pdf_local(path, route)
     raise RuntimeError(f'ruta {route!r} no aplica a {ext}')
@@ -241,7 +250,7 @@ def _worker(job: dict) -> dict:
             files.append({'name': name, 'tmp': str(tmp), 'bytes': len(data)})
         result.update(ok=True, files=files, method=outcome.method, warnings=outcome.warnings,
                       pages=outcome.pages, ocr_pages=outcome.ocr_pages,
-                      structured_pages=outcome.structured_pages)
+                      structured_pages=outcome.structured_pages, model_pages=outcome.model_pages)
     except Skip as s:
         result.update(ok=True, skipped=str(s), files=[])
     except Exception as e:

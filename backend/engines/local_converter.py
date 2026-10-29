@@ -34,7 +34,7 @@ try:
 except ImportError:  # pragma: no cover
     import fitz
 
-from backend.engines import structured_ocr
+from backend.engines import structured_ocr, vlm_ocr
 
 MARKITDOWN_EXTS = {'.docx', '.pptx', '.html', '.htm', '.epub'}
 TEXTUTIL_EXTS = {'.doc', '.rtf', '.odt'}
@@ -157,6 +157,65 @@ def ocr_images(images: list) -> list:
     return out
 
 
+@dataclass
+class PageRead:
+    text: str
+    structured: bool = False  # tablas/listas de docvision
+    model: bool = False       # leída por el modelo de visión local (GLM-OCR)
+    rejected: str = ''        # por qué se descartó la lectura del modelo
+    plain: str = ''           # lectura de Vision, para contrastar cifras
+
+
+def read_images(images: list) -> list:
+    """OCR de varias imágenes PIL con el mejor lector disponible. Retorna [PageRead].
+
+    Vision siempre corre (es rápido y no inventa texto). Si el modelo de visión local
+    está instalado (vlm_ocr), lee cada página y su lectura reemplaza a la de Vision
+    cuando pasa los controles de vlm_ocr.judge; si no, queda la de Vision."""
+    reads = [PageRead(text, structured) for text, structured in ocr_images(images)]
+    if not images or not vlm_ocr.available():
+        return reads
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for i, im in enumerate(images):
+            path = os.path.join(tmp, f'{i:04d}.png')
+            im.save(path, format='PNG')
+            paths.append(path)
+        try:
+            results = vlm_ocr.recognize(paths)
+        except RuntimeError as e:
+            for r in reads:
+                r.rejected = str(e)[:120]
+            return reads
+    for r, result in zip(reads, results):
+        # Referencia: lo que leyó Vision (si es la versión de docvision, ya se verificó
+        # que conserva >= 90 % del OCR plano).
+        r.plain = r.text
+        text, reason = vlm_ocr.judge(result, r.text)
+        if text is None:
+            r.rejected = reason
+        else:
+            r.text, r.structured, r.model = text, False, True
+    return reads
+
+
+def model_warnings(reads: list, labels: list) -> list:
+    """Avisos del OCR con modelo: páginas en que se descartó y cifras a revisar."""
+    warns = []
+    rejected = [(lbl, r.rejected) for lbl, r in zip(labels, reads) if r.rejected]
+    if rejected:
+        shown = '; '.join(f'{lbl}: {why}' for lbl, why in rejected[:5])
+        warns.append(f'OCR con modelo descartado, se usó Vision ({shown})')
+    numbers = []
+    for r in reads:
+        if r.model and r.plain:
+            numbers += [n for n in vlm_ocr.missing_numbers(r.plain, r.text) if n not in numbers]
+    if numbers:
+        warns.append('cifras que Vision leyó distinto que el modelo, revísalas contra el original: '
+                     + ', '.join(numbers[:8]))
+    return warns
+
+
 def detect_document(image):
     """Bordes del documento dentro de una foto, con la segmentación de
     documentos de Vision. Retorna (esquinas en píxeles [sup-izq, inf-izq,
@@ -222,14 +281,15 @@ def _open_image(path: str):
 
 
 def convert_image(path: str) -> tuple:
-    """Retorna (texto, nota de recorte)."""
+    """Retorna (texto, notas, leída_por_modelo)."""
     img = _open_image(path)
     img, note = crop_to_document(img)
-    text, structured = ocr_images([img])[0]
-    odd = structured_ocr.suspicious_numbers(text)
+    read = read_images([img])[0]
+    odd = structured_ocr.suspicious_numbers(read.text)
+    notes = [note, *model_warnings([read], ['imagen'])]
     if odd:
-        note = '; '.join(filter(None, [note, 'cifras con formato incoherente, posible error de OCR: ' + ', '.join(odd)]))
-    return text, note
+        notes.append('cifras con formato incoherente, posible error de OCR: ' + ', '.join(odd))
+    return read.text, '; '.join(filter(None, notes)), read.model
 
 
 # --- PDF --------------------------------------------------------------------
@@ -244,6 +304,7 @@ class PdfResult:
     pages: int = 0
     ocr_pages: int = 0
     structured_pages: int = 0
+    model_pages: int = 0
     warnings: list = field(default_factory=list)
 
 
@@ -301,11 +362,15 @@ def convert_pdf_ex(file_bytes: bytes) -> PdfResult:
             if degraded:
                 result.warnings.append(f'página(s) {", ".join(map(str, degraded[:10]))}: el formato Markdown perdía texto; se usó el texto plano')
 
+        reads = []
         for start in range(0, len(needs_ocr), _OCR_CHUNK_PAGES):
             batch = needs_ocr[start:start + _OCR_CHUNK_PAGES]
-            for i, (text, structured) in zip(batch, ocr_images([_page_image(doc[i]) for i in batch])):
-                pages_md[i] = text.strip()
-                result.structured_pages += structured
+            for i, read in zip(batch, read_images([_page_image(doc[i]) for i in batch])):
+                pages_md[i] = read.text.strip()
+                result.structured_pages += read.structured
+                result.model_pages += read.model
+                reads.append(read)
+        result.warnings += model_warnings(reads, [f'pág. {i + 1}' for i in needs_ocr])
 
     blank = [i + 1 for i in range(total) if not pages_md.get(i)]
     if blank:

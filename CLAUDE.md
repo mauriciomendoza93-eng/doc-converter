@@ -27,8 +27,9 @@ vercel --prod
 ## Uso local (Finder / CLI)
 
 `backend/cli.py` convierte archivos del disco y `cli/finder/install.sh` instala
-los Servicios de Finder **Convertir con Doc Converter** (local) y **(IA)**
-(Gemini). Detalle en `cli/finder/README.md`. Usa `.venv/` + `.env` del proyecto.
+el Servicio de Finder **Convertir con Doc Converter** (motor local; el antiguo **(IA)**
+se retiró en 2026-10 y el installer lo quita). Detalle en `cli/finder/README.md`. Usa
+`.venv/` + `.env` del proyecto, y `.venv-ocr/` para el OCR con modelo.
 
 ```bash
 .venv/bin/python -m backend.cli <archivo|carpeta> [--engine local|ai] [--route auto|finance|markdown]
@@ -41,7 +42,10 @@ tiempo límite (`backend/jobs.py`). `cli/docvision/` es un helper Swift (Vision
 `RecognizeDocumentsRequest`, macOS 26+) que reconoce tablas/listas; `install.sh` lo
 compila y precalienta (el arranque en frío son ~30 s por binario nuevo).
 `backend/engines/local_converter.py` es el motor local (markitdown, textutil,
-pymupdf4llm y OCR de Vision por página) y `backend/engines/text_structurer.py`
+pymupdf4llm y OCR por página: `read_images` usa GLM-OCR local vía MLX
+(`backend/engines/vlm_ocr.py` + helper `cli/vlmocr/` en su propio `.venv-ocr`, porque
+mlx-vlm choca con las versiones de fastapi de la web) y Vision como referencia y respaldo
+por página; `docs/ocr-benchmark.md`) y `backend/engines/text_structurer.py`
 reestructura ese texto con Gemini en modo texto (`--engine ai`). Las fotos se recortan
 y enderezan al documento con Vision antes del OCR (`crop_to_document`); si la
 detección es dudosa, solo lo sugiere en la salida. Solo los usa el
@@ -61,7 +65,10 @@ de 21 páginas recortó más de la mitad del contenido y tardó 4 min 21 s frent
 estructura mejor tablas escaneadas, pero 40 s/página, ~2 GB, servidor propio,
 nube china por defecto y aún con errores de dígitos; para escaneos puntuales
 basta `--engine vision` (Gemini). GLM-OCR / PaddleOCR-VL vía MLX son candidatos
-no evaluados aquí si `docvision` no alcanza en algún documento.
+no evaluados aquí si `docvision` no alcanza en algún documento. **Actualización 2026-10**:
+se evaluaron (`docs/ocr-benchmark.md`) y GLM-OCR 8 bits quedó como OCR por defecto de
+escaneos y fotos; PaddleOCR-VL-1.6 4 bits leyó peor que Vision y LightOnOCR-3 entró en bucle.
+Se descartó Mistral OCR (nube, de pago, el documento sale de la Mac) como motor por defecto.
 
 ## Servidor propio (HP)
 
