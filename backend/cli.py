@@ -4,13 +4,15 @@ cli.py — Conversión local de archivos y carpetas (misma lógica que POST /con
 
 Uso:
     python -m backend.cli <archivo|carpeta> [...] [--route auto|finance|markdown]
-                          [--engine local|ai|vision] [--jobs N] [--timeout S]
+                          [--engine local|ai|vision] [--ocr auto|local|vision] [--jobs N] [--timeout S]
                           [--no-recursive] [--force] [--dry-run]
 
---engine local (default): todo se convierte en la Mac (Office con markitdown,
-PDF con capa de texto con pymupdf4llm, páginas escaneadas e imágenes con el OCR
-nativo de Vision, con tablas y listas reconocidas por RecognizeDocumentsRequest
-en macOS 26+). Gemini solo interviene en extractos bancarios en PDF. --engine ai:
+--engine local (default): Office con markitdown y PDF con capa de texto con pymupdf4llm,
+en la Mac. Las páginas escaneadas y las imágenes las lee un modelo de visión según --ocr:
+auto (default) prueba la nube (Claude/Gemini, gratis vía OmniRoute y GEMINI_API_KEY), luego
+GLM-OCR en la Mac y al final el OCR de Vision; local no deja salir la imagen de la Mac
+(GLM-OCR → Vision); vision usa solo Vision. Cada lectura se valida contra Vision
+(backend/engines/vlm_ocr.py). Gemini también interviene en extractos bancarios. --engine ai:
 todo PDF/imagen pasa por Gemini, pero solo el TEXTO que ya extrajo la Mac, para que
 lo reestructure (una solicitud por documento). --engine vision: manda las imágenes
 del documento a Gemini, como la web; el más lento y el que más cuota gasta, pero el
@@ -45,6 +47,8 @@ def main(argv=None) -> int:
     parser.add_argument('paths', nargs='+', help='Archivos o carpetas a convertir')
     parser.add_argument('--route', choices=('auto', 'finance', 'markdown'), default='auto')
     parser.add_argument('--engine', choices=('local', 'ai', 'vision'), default='local')
+    parser.add_argument('--ocr', choices=('auto', 'local', 'vision'),
+                        help='lector de escaneos y fotos (default: DOC_CONVERTER_OCR o auto)')
     parser.add_argument('--jobs', type=int, default=DEFAULT_JOBS, help='archivos en paralelo (default %(default)s)')
     parser.add_argument('--timeout', type=int, default=batch.DEFAULT_TIMEOUT, help='segundos máximos por archivo (default %(default)s)')
     parser.add_argument('--no-recursive', action='store_true', help='en carpetas, solo el primer nivel')
@@ -52,6 +56,8 @@ def main(argv=None) -> int:
     parser.add_argument('--dry-run', action='store_true', help='listar qué se convertiría, sin convertir')
     args = parser.parse_args(argv)
 
+    if args.ocr:
+        os.environ['DOC_CONVERTER_OCR'] = args.ocr  # lo heredan los workers
     plan = batch.plan(args.paths, recursive=not args.no_recursive)
     for m in plan.missing:
         print(f'Error: no existe {m}', file=sys.stderr)

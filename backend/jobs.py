@@ -147,7 +147,7 @@ def _convert_pdf_local(path: Path, route: str) -> Outcome:
         warns.append('se dejó Markdown local')
     if not r.markdown.strip():
         raise RuntimeError('no se pudo extraer texto del PDF')
-    method = 'local' if not r.ocr_pages else _ocr_method(r.model_pages)
+    method = 'local' if not r.ocr_pages else _ocr_method(r.models)
     return Outcome(_md(path.name, r.markdown), method, warns, r.pages, r.ocr_pages, r.structured_pages,
                    r.model_pages)
 
@@ -160,7 +160,7 @@ def _extract_text(path: Path) -> tuple:
         return local_converter.convert_office(str(path)), Outcome()
     if ext in local_converter.IMAGE_EXTS:
         text, note, model = local_converter.convert_image(str(path))
-        return text, Outcome(warnings=[note] if note else [], model_pages=int(model))
+        return text, Outcome(warnings=[note] if note else [], model_pages=int(bool(model)))
     r = local_converter.convert_pdf_ex(path.read_bytes())
     return r.markdown, Outcome(warnings=r.warnings, pages=r.pages, ocr_pages=r.ocr_pages,
                                structured_pages=r.structured_pages, model_pages=r.model_pages)
@@ -185,9 +185,10 @@ def _convert_ai(path: Path) -> Outcome:
     return partial
 
 
-def _ocr_method(model_pages: int) -> str:
-    """Método informado para un documento con OCR: con modelo de visión o solo Vision."""
-    return 'local-ocr glm-ocr' if model_pages else 'local-ocr'
+def _ocr_method(models: list) -> str:
+    """Método informado para un documento con OCR: los modelos que leyeron páginas
+    (en la nube o glm-ocr local) o solo Vision ('local-ocr')."""
+    return 'ocr ' + ' + '.join(models) if models else 'local-ocr'
 
 
 def _convert_local_first(path: Path, route: str) -> Outcome:
@@ -204,8 +205,8 @@ def _convert_local_first(path: Path, route: str) -> Outcome:
                 raise RuntimeError('no se pudieron extraer movimientos de la imagen: ' + warns[-1])
             outcome.pages = outcome.ocr_pages = 1
             return outcome
-        return Outcome(_md(path.name, text), _ocr_method(model), warns, pages=1, ocr_pages=1,
-                       model_pages=int(model))
+        return Outcome(_md(path.name, text), _ocr_method([model] if model else []), warns, pages=1, ocr_pages=1,
+                       model_pages=int(bool(model)))
     if ext == '.pdf':
         return _convert_pdf_local(path, route)
     raise RuntimeError(f'ruta {route!r} no aplica a {ext}')

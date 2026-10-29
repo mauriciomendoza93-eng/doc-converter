@@ -1,11 +1,17 @@
 """
-vlm_ocr.py — OCR con un modelo de visión local (GLM-OCR vía MLX, cli/vlmocr).
+vlm_ocr.py — OCR de escaneos y fotos con modelos de visión: en la nube (cadena gratuita de
+llm_router) y en la Mac (GLM-OCR vía MLX, cli/vlmocr).
 
 El OCR de Vision lee letra por letra: en escaneos de fax, fotos con sombra o márgenes
 cortados entrega "edame", "arciles,jen", "iforniación" y basura de sellos. Un modelo
-de visión entrenado para OCR lee la página entera con contexto de idioma, en orden de
-lectura y sin el ruido. Corre en la Mac (~1,1 GB, sin red ni cuota), pero es más lento:
-de 10 a 80 s por página según la densidad y la energía disponible.
+de visión lee la página entera con contexto de idioma, en orden de lectura y sin ruido.
+Medido con un testimonio escaneado (docs/ocr-benchmark.md), de mejor a peor: Claude Sonnet
+4.6 (vía OmniRoute), Gemini, GLM-OCR local, Vision. GLM-OCR corre sin red ni cuota (~1,1 GB)
+pero tarda 15-90 s por página y comete errores de contenido ("recibita" por "ochenta y
+cuatro"); por eso es el respaldo de la nube, no al revés.
+
+Modo (DOC_CONVERTER_OCR): 'auto' (por defecto) nube → GLM-OCR → Vision; 'local' GLM-OCR →
+Vision, sin que la imagen salga de la Mac; 'vision' solo Vision.
 
 Un modelo puede fallar distinto que un OCR clásico: entrar en bucle, saltarse un bloque
 o completar texto que no está. Por eso cada página se contrasta con el OCR de Vision de
@@ -15,8 +21,8 @@ la misma imagen (que es rápido y no inventa) y se descarta si:
   - es mucho más larga que Vision (inventó o duplicó).
 Las cifras de Vision que el modelo no reproduce se informan para revisarlas a mano.
 
-Sin Apple Silicon, sin .venv-ocr o con DOC_CONVERTER_OCR=vision, available() es False
-y el motor sigue con Vision como antes.
+Sin Apple Silicon, sin .venv-ocr o con DOC_CONVERTER_OCR=vision, available() es False;
+sin claves o con modo 'local'/'vision', cloud_available() es False.
 """
 
 import json
@@ -26,6 +32,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from backend.engines import structured_ocr
@@ -48,12 +55,81 @@ _META = re.compile(r'^\W*(the (text|image|document|page)|this (image|page|docume
 _TIMEOUT_PER_PAGE = 300
 _TIMEOUT_LOAD = 180
 
+# Nube: orden por calidad medida, no por velocidad (Claude ~50 s/página, Gemini ~25 s).
+# Gemini 3.6 Flash leyó mejor que 3 Flash, pero devolvió una página vacía: va al final.
+# Claude Haiku 5.5 (API directa, ~US$ 1 por 1 000 páginas) solo entra con ANTHROPIC_API_KEY;
+# no se pudo medir sin clave, pero cada página igual se valida y, si falla, sigue la cadena.
+CLOUD_CHAIN = (
+    'anthropic:claude-haiku-5-5',
+    'omniroute:agy/claude-sonnet-4-6',
+    'gemini:gemini-3-flash-preview',
+    'omniroute:agy/gemini-3.1-flash-lite',
+    'gemini:gemini-3.6-flash',
+)
+CLOUD_PROMPT = ('Transcribe este documento escaneado a Markdown, completo y fiel: todo el texto en orden '
+                'de lectura, sin resumir, sin corregir el contenido ni agregar comentarios. Usa títulos y '
+                'tablas Markdown cuando el documento los tenga. Responde solo con la transcripción.')
+# Con 3 páginas a la vez agy (OmniRoute) empezó a responder 503 en un escaneo de 15 páginas.
+_CLOUD_WORKERS = 2
+_CLOUD_TIMEOUT = 180
+
+
+def _cloud_failure(detail: str) -> str:
+    """Resumen corto de por qué ningún modelo de la nube sirvió para una página."""
+    d = detail.lower()
+    if 'rechazada' in d:
+        return 'sus lecturas no pasaron la validación'
+    if 'quota' in d or '429' in d:
+        return 'sin cuota o no disponible'
+    return 'no disponible'
+
+
+def mode() -> str:
+    m = os.environ.get('DOC_CONVERTER_OCR', '').lower()
+    return m if m in ('local', 'vision') else 'auto'
+
 
 def available() -> bool:
-    if os.environ.get('DOC_CONVERTER_OCR', '').lower() == 'vision':
+    """GLM-OCR local instalado y permitido."""
+    if mode() == 'vision':
         return False
     return (sys.platform == 'darwin' and platform.machine() == 'arm64'
             and VENV_PYTHON.is_file() and HELPER.is_file())
+
+
+def _cloud_router():
+    from backend.engines.llm_router import LLMRouter
+    return LLMRouter(vision_chain=os.environ.get('DOC_CONVERTER_LLM_OCR_CHAIN') or CLOUD_CHAIN)
+
+
+def cloud_available() -> bool:
+    return mode() == 'auto' and _cloud_router().available()
+
+
+def read_cloud(image_paths: list, plains: list) -> list:
+    """Lee cada imagen con la cadena de la nube, en paralelo. Cada respuesta se valida con
+    judge() contra el texto de Vision de esa página; si no pasa, prueba el siguiente modelo.
+    Retorna por imagen (texto o None, modelo, motivo si ninguno sirvió)."""
+    from backend.engines.llm_router import LLMUnavailable, _as_jpeg
+    router = _cloud_router()
+
+    def one(i):
+        def validate(text):
+            out, why = judge({'text': text}, plains[i])
+            return True if out is not None else why
+        with open(image_paths[i], 'rb') as f:
+            jpeg = _as_jpeg(f.read())
+        try:
+            reply = router.complete(CLOUD_PROMPT, images=[jpeg], vision=True, validate=validate,
+                                    max_tokens=8000, timeout=_CLOUD_TIMEOUT)
+        except LLMUnavailable as e:
+            return None, '', 'nube: ' + _cloud_failure(str(e))
+        return clean(reply.text), reply.model, ''
+
+    if not image_paths:
+        return []
+    with ThreadPoolExecutor(max_workers=min(_CLOUD_WORKERS, len(image_paths))) as pool:
+        return list(pool.map(one, range(len(image_paths))))
 
 
 def recognize(image_paths: list) -> list:

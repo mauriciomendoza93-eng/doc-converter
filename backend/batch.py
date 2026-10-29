@@ -130,7 +130,7 @@ def _timeout_for(item: Item, base: int, jobs: int) -> int:
     helper del modelo tiene su propio límite por página, así que un cuelgue igual se corta."""
     from backend.engines import vlm_ocr
     ext = item.src.suffix.lower()
-    if ext not in IMAGE_EXTS | {'.pdf'} or not vlm_ocr.available():
+    if ext not in IMAGE_EXTS | {'.pdf'} or not (vlm_ocr.available() or vlm_ocr.cloud_available()):
         return base
     pages = 1
     if ext == '.pdf':

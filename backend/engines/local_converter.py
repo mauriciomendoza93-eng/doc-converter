@@ -130,6 +130,11 @@ def ocr_images(images: list) -> list:
 
     Intenta docvision (tablas/listas/títulos) y lo contrasta contra el OCR plano
     de la misma imagen; si pierde contenido o no está disponible, usa el plano."""
+    return [(text, structured) for text, structured, _plain in _vision_pages(images)]
+
+
+def _vision_pages(images: list) -> list:
+    """Como ocr_images, pero conserva también el OCR plano: [(texto, estructurado, plano)]."""
     if not images:
         return []
     with ThreadPoolExecutor(max_workers=min(_MAX_OCR_WORKERS, len(images))) as pool:
@@ -151,9 +156,9 @@ def ocr_images(images: list) -> list:
     out = []
     for plain_text, page_blocks in zip(plains, blocks):
         if page_blocks is None:
-            out.append((plain_text, False))
+            out.append((plain_text, False, plain_text))
         else:
-            out.append(structured_ocr.choose(structured_ocr.blocks_to_markdown(page_blocks), plain_text))
+            out.append((*structured_ocr.choose(structured_ocr.blocks_to_markdown(page_blocks), plain_text), plain_text))
     return out
 
 
@@ -161,19 +166,26 @@ def ocr_images(images: list) -> list:
 class PageRead:
     text: str
     structured: bool = False  # tablas/listas de docvision
-    model: bool = False       # leída por el modelo de visión local (GLM-OCR)
-    rejected: str = ''        # por qué se descartó la lectura del modelo
-    plain: str = ''           # lectura de Vision, para contrastar cifras
+    model: str = ''           # modelo que la leyó ('' = Vision): 'glm-ocr' o p. ej. 'claude-sonnet-4-6'
+    rejected: list = field(default_factory=list)  # lectores descartados y por qué
+    plain: str = ''           # OCR plano de Vision: referencia para validar y contrastar cifras
+
+
+def _short(label: str) -> str:
+    return label.rsplit('/', 1)[-1].rsplit(':', 1)[-1]
 
 
 def read_images(images: list) -> list:
     """OCR de varias imágenes PIL con el mejor lector disponible. Retorna [PageRead].
 
-    Vision siempre corre (es rápido y no inventa texto). Si el modelo de visión local
-    está instalado (vlm_ocr), lee cada página y su lectura reemplaza a la de Vision
-    cuando pasa los controles de vlm_ocr.judge; si no, queda la de Vision."""
-    reads = [PageRead(text, structured) for text, structured in ocr_images(images)]
-    if not images or not vlm_ocr.available():
+    Vision siempre corre (es rápido y no inventa texto) y su OCR plano es la referencia.
+    Después, por página y en este orden: la nube (si DOC_CONVERTER_OCR lo permite y hay
+    claves), GLM-OCR local y, si ninguno pasa vlm_ocr.judge, la lectura de Vision.
+    El OCR plano y no el de docvision, porque docvision a veces repite un formulario
+    como tabla y como lista, y eso hacía parecer incompleta una lectura correcta."""
+    reads = [PageRead(text, structured, plain=plain) for text, structured, plain in _vision_pages(images)]
+    use_cloud, use_local = bool(images) and vlm_ocr.cloud_available(), bool(images) and vlm_ocr.available()
+    if not (use_cloud or use_local):
         return reads
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
@@ -181,31 +193,38 @@ def read_images(images: list) -> list:
             path = os.path.join(tmp, f'{i:04d}.png')
             im.save(path, format='PNG')
             paths.append(path)
-        try:
-            results = vlm_ocr.recognize(paths)
-        except RuntimeError as e:
-            for r in reads:
-                r.rejected = str(e)[:120]
-            return reads
-    for r, result in zip(reads, results):
-        # Referencia: lo que leyó Vision (si es la versión de docvision, ya se verificó
-        # que conserva >= 90 % del OCR plano).
-        r.plain = r.text
-        text, reason = vlm_ocr.judge(result, r.text)
-        if text is None:
-            r.rejected = reason
-        else:
-            r.text, r.structured, r.model = text, False, True
+        if use_cloud:
+            for r, (text, label, why) in zip(reads, vlm_ocr.read_cloud(paths, [r.plain for r in reads])):
+                if text is None:
+                    r.rejected.append(why)
+                else:
+                    r.text, r.structured, r.model = text, False, _short(label)
+        pending = [i for i, r in enumerate(reads) if not r.model]
+        if use_local and pending:
+            try:
+                results = vlm_ocr.recognize([paths[i] for i in pending])
+            except RuntimeError as e:
+                results = [None] * len(pending)
+                for i in pending:
+                    reads[i].rejected.append(f'glm-ocr: {str(e)[:120]}')
+            for i, result in zip(pending, results):
+                text, why = vlm_ocr.judge(result, reads[i].plain)
+                if text is None:
+                    if result is not None:
+                        reads[i].rejected.append(f'glm-ocr: {why}')
+                else:
+                    reads[i].text, reads[i].structured, reads[i].model = text, False, 'glm-ocr'
     return reads
 
 
 def model_warnings(reads: list, labels: list) -> list:
-    """Avisos del OCR con modelo: páginas en que se descartó y cifras a revisar."""
+    """Avisos del OCR con modelos: páginas que bajaron de lector y cifras a revisar."""
     warns = []
-    rejected = [(lbl, r.rejected) for lbl, r in zip(labels, reads) if r.rejected]
-    if rejected:
-        shown = '; '.join(f'{lbl}: {why}' for lbl, why in rejected[:5])
-        warns.append(f'OCR con modelo descartado, se usó Vision ({shown})')
+    fell = [(lbl, r) for lbl, r in zip(labels, reads) if r.rejected]
+    if fell:
+        shown = '; '.join(f'{lbl} → {r.model or "vision"} ({" / ".join(r.rejected)[:90]})' for lbl, r in fell[:4])
+        more = f' y {len(fell) - 4} más' if len(fell) > 4 else ''
+        warns.append(f'OCR: {len(fell)} página(s) con un lector de respaldo: {shown}{more}')
     numbers = []
     for r in reads:
         if r.model and r.plain:
@@ -281,7 +300,7 @@ def _open_image(path: str):
 
 
 def convert_image(path: str) -> tuple:
-    """Retorna (texto, notas, leída_por_modelo)."""
+    """Retorna (texto, notas, modelo que la leyó o '' si fue Vision)."""
     img = _open_image(path)
     img, note = crop_to_document(img)
     read = read_images([img])[0]
@@ -305,6 +324,7 @@ class PdfResult:
     ocr_pages: int = 0
     structured_pages: int = 0
     model_pages: int = 0
+    models: list = field(default_factory=list)  # modelos que leyeron alguna página
     warnings: list = field(default_factory=list)
 
 
@@ -368,7 +388,9 @@ def convert_pdf_ex(file_bytes: bytes) -> PdfResult:
             for i, read in zip(batch, read_images([_page_image(doc[i]) for i in batch])):
                 pages_md[i] = read.text.strip()
                 result.structured_pages += read.structured
-                result.model_pages += read.model
+                result.model_pages += bool(read.model)
+                if read.model and read.model not in result.models:
+                    result.models.append(read.model)
                 reads.append(read)
         result.warnings += model_warnings(reads, [f'pág. {i + 1}' for i in needs_ocr])
 
